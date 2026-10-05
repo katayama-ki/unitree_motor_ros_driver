@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>unitree_motor_ros_driver</name>
+  <version>0.1.0</version>
+  <description>ROS 1 Noetic serial bus driver for Unitree A1, B1, and GO-M8010-6 motors.</description>
+  <maintainer email="katayama-ki@users.noreply.github.com">katayama-ki</maintainer>
+  <license>MIT</license>
+  <buildtool_depend>catkin</buildtool_depend>
+  <build_depend>message_generation</build_depend>
+  <depend>roscpp</depend>
+  <depend>std_msgs</depend>
+  <exec_depend>message_runtime</exec_depend>
+  <test_depend>rostest</test_depend>
+  <test_depend>rospy</test_depend>
+  <test_depend>roslib</test_depend>
+  <export/>
+</package>
