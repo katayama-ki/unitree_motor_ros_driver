@@ -1,0 +1,4 @@
+<launch>
+  <test test-name="ros_pty_test" pkg="unitree_motor_ros_driver"
+        type="ros_pty_test.py" time-limit="40"/>
+</launch>

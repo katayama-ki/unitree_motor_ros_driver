@@ -1,0 +1,45 @@
+<launch>
+  <arg name="serial_port" doc="Required serial device, e.g. /dev/ttyUSB0"/>
+  <arg name="motor_type" doc="Required: A1, B1, or GO-M8010-6"/>
+  <arg name="node_name" default="unitree_motor_driver"/>
+  <arg name="motor_id_scan_max" default="14"/>
+  <arg name="command_timeout" default="0.5"/>
+  <arg name="active_io_rate" default="100"/>
+  <arg name="idle_io_rate" default="10"/>
+  <arg name="io_rate_warn_ratio" default="0.9"/>
+  <arg name="io_retry_rate" default="0"/>
+  <arg name="active_state_pub_rate" default="100"/>
+  <arg name="idle_state_pub_rate" default="10"/>
+  <arg name="timeout_action" default="zero_torque"/>
+  <arg name="timeout_damping_kd" default="1.0"/>
+  <arg name="velocity_limit" default="0"/>
+  <arg name="torque_limit" default="0"/>
+  <arg name="kp_limit" default="200"/>
+  <arg name="kd_limit" default="10"/>
+  <arg name="warn_temperature" default="70"/>
+  <arg name="stop_temperature" default="80"/>
+  <arg name="stop_on_motor_error" default="true"/>
+
+  <node pkg="unitree_motor_ros_driver" type="unitree_motor_driver_node"
+        name="$(arg node_name)" output="screen">
+    <param name="serial_port" value="$(arg serial_port)" type="str"/>
+    <param name="motor_type" value="$(arg motor_type)" type="str"/>
+    <param name="motor_id_scan_max" value="$(arg motor_id_scan_max)" type="int"/>
+    <param name="command_timeout" value="$(arg command_timeout)" type="double"/>
+    <param name="active_io_rate" value="$(arg active_io_rate)" type="double"/>
+    <param name="idle_io_rate" value="$(arg idle_io_rate)" type="double"/>
+    <param name="io_rate_warn_ratio" value="$(arg io_rate_warn_ratio)" type="double"/>
+    <param name="io_retry_rate" value="$(arg io_retry_rate)" type="double"/>
+    <param name="active_state_pub_rate" value="$(arg active_state_pub_rate)" type="double"/>
+    <param name="idle_state_pub_rate" value="$(arg idle_state_pub_rate)" type="double"/>
+    <param name="timeout_action" value="$(arg timeout_action)" type="str"/>
+    <param name="timeout_damping_kd" value="$(arg timeout_damping_kd)" type="double"/>
+    <param name="velocity_limit" value="$(arg velocity_limit)" type="double"/>
+    <param name="torque_limit" value="$(arg torque_limit)" type="double"/>
+    <param name="kp_limit" value="$(arg kp_limit)" type="double"/>
+    <param name="kd_limit" value="$(arg kd_limit)" type="double"/>
+    <param name="warn_temperature" value="$(arg warn_temperature)" type="int"/>
+    <param name="stop_temperature" value="$(arg stop_temperature)" type="int"/>
+    <param name="stop_on_motor_error" value="$(arg stop_on_motor_error)" type="bool"/>
+  </node>
+</launch>
