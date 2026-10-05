@@ -1,0 +1,27 @@
+exclude: ^unitree_actuator_sdk/
+repos:
+  # Python
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.2
+    hooks:
+      - id: ruff-format
+  # CPP
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v23.1.2
+    hooks:
+      - id: clang-format
+        types_or: [c++, c]
+  - repo: local
+    hooks:
+      - id: ament_cpplint
+        name: ament_cpplint
+        entry: ament_cpplint
+        language: python
+        # Jazzy's Python. Unpinned, prek may reuse a newer managed Python in its cache,
+        # and ament_cpplint imports sre_compile, which Python 3.15 removed.
+        language_version: "3.12"
+        additional_dependencies:
+          - git+https://github.com/ament/ament_lint.git@0.17.5#subdirectory=ament_cpplint
+        types_or: [c++, c]
+        # InsertBraces already guarantees braces; this check misfires on wrapped else-if conditions.
+        args: [--filters=-readability/braces]
