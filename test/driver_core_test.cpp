@@ -321,6 +321,7 @@ struct Harness {
 };
 TEST(BusDriver, ScanRetriesAndRejectsUnknownIdWithoutFeedingWatchdog) {
   auto c = config();
+  c.motor_id_scan_max = 2;  // ID 2 is absent: scanning it must not produce IO warnings.
   c.command_timeout = 0.05;
   c.timeout_action = ud::TimeoutAction::BRAKE;
   Harness h(c);
@@ -345,6 +346,7 @@ TEST(BusDriver, ScanRetriesAndRejectsUnknownIdWithoutFeedingWatchdog) {
   EXPECT_EQ(0, h.bus->transactions[0].command.values.id);
   EXPECT_EQ(0, h.bus->transactions[1].command.values.id);
   EXPECT_TRUE(h.bus->hasLog("mismatched ID"));
+  EXPECT_FALSE(h.bus->hasLog("sendRecv failed"));
   for (size_t i = h.bus->transactions.size() - 2; i < h.bus->transactions.size(); ++i) {
     const auto& wire = h.bus->transactions[i].command;
     EXPECT_EQ(ud::Mode::BRAKE, wire.mode);
@@ -362,6 +364,7 @@ TEST(BusDriver, NoDetectedMotorIsStartupFailure) {
   EXPECT_TRUE(h.driver->ids().empty());
   std::lock_guard<std::mutex> lock(h.bus->mutex);
   EXPECT_EQ(4u, h.bus->transactions.size());
+  EXPECT_FALSE(h.bus->hasLog("sendRecv failed"));
   EXPECT_TRUE(h.bus->published.empty());
   EXPECT_TRUE(h.bus->closed);
 }
@@ -427,6 +430,7 @@ TEST(BusDriver, RetryUsesFreshCommandAndOneSuccessRecovers) {
   ASSERT_TRUE(h.bus->wait([&] { return h.bus->hasLog("IO recovered"); }));
   std::lock_guard<std::mutex> lock(h.bus->mutex);
   EXPECT_TRUE(h.bus->hasCommand(0, ud::Mode::FOC));
+  EXPECT_TRUE(h.bus->hasLog("sendRecv failed"));
 }
 TEST(BusDriver, CommandSubmissionDoesNotBlockBehindTransactionAndSafetyOverridesIt) {
   auto c = config();
