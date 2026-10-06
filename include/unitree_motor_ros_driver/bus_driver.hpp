@@ -49,7 +49,9 @@ private:
   void scan(Transport & transport);
   void loop(Transport & transport);
   void shutdown(Transport & transport);
-  bool transact(Transport & transport, const WireCommand & command, Feedback & feedback);
+  bool transact(
+    Transport & transport, const WireCommand & command, Feedback & feedback,
+    bool warn_on_send_recv_failure = true);
   void inspectFeedback(MotorContext & motor, const Feedback & feedback, TimePoint now);
   void logMotor(Severity severity, uint8_t id, const std::string & text);
   void throttled(

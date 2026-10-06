@@ -22,8 +22,10 @@ The process needs permission to open the serial device (typically membership in
 `dialout`). For another bus, launch another node with a different `serial_port`
 and `node_name`. A bus uses one motor type. Startup sends a zero-parameter BRAKE
 to each scanned ID, retries a failed or mismatched reply once, and logs the
-detected IDs. No detected motors is a fatal startup error. Startup faults latch
-only the affected motor; other motors remain available.
+detected IDs. Failed sendRecv calls during the scan do not produce warnings,
+since the scanned ID may simply be absent. Mismatched replies and transaction
+exceptions still produce warnings. No detected motors is a fatal startup error.
+Startup faults latch only the affected motor; other motors remain available.
 
 ## Topics
 
