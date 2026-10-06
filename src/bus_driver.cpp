@@ -103,7 +103,9 @@ void BusDriver::throttled(
     logMotor(severity, id, text);
   }
 }
-bool BusDriver::transact(Transport & transport, const WireCommand & command, Feedback & feedback)
+bool BusDriver::transact(
+  Transport & transport, const WireCommand & command, Feedback & feedback,
+  bool warn_on_send_recv_failure)
 {
   bool success = false;
   std::string failure;
@@ -116,7 +118,7 @@ bool BusDriver::transact(Transport & transport, const WireCommand & command, Fee
   } catch (const std::exception & error) {
     failure = std::string("transaction exception: ") + error.what();
   }
-  if (!success) {
+  if (!success && (warn_on_send_recv_failure || !failure.empty())) {
     std::lock_guard<std::mutex> lock(mutex_);
     throttled(
       Severity::WARN, command.values.id, "io_failure",
@@ -172,7 +174,9 @@ void BusDriver::scan(Transport & transport)
     zero.id = id;
     const auto brake = toWire(config_.motor_type, zero, Mode::BRAKE);
     Feedback rotor;
-    if (!transact(transport, brake, rotor) && !transact(transport, brake, rotor)) {
+    // A failed sendRecv is expected for an absent ID during discovery. Keep
+    // mismatched replies and transaction exceptions visible even during the scan.
+    if (!transact(transport, brake, rotor, false) && !transact(transport, brake, rotor, false)) {
       continue;
     }
     const auto feedback = toOutput(config_.motor_type, rotor);
@@ -184,7 +188,8 @@ void BusDriver::scan(Transport & transport)
       motor.latest.id = id;
       motor.makeDue(now);
       inspectFeedback(motor, feedback, now);
-      motor.shouldPublish(config_, now, feedback.stamp_ns);
+      motor.shouldPublish(
+        config_, now, feedback.stamp_ns);  // Called only to record this scan feedback as published.
     }
     publish_(feedback);
   }
