@@ -94,8 +94,8 @@ Every private parameter is exposed as an argument in `motor_driver.launch`.
 | `io_retry_rate` | 0 | Retry rate (Hz) after `io_error` is set; zero disables automatic retries|
 | `active_state_pub_rate` | 100 | Target state publication rate (Hz) per ACTIVE motor |
 | `idle_state_pub_rate` | 10 | Target state publication rate (Hz) per motor in any other control state |
-| `velocity_limit` | 0 | Reject commands exceeding this velocity limit (rad/s); zero or values above the motor profile limit use the profile limit |
-| `torque_limit` | 0 | Reject commands exceeding this torque limit (N·m); zero or values above the motor profile limit use the profile limit |
+| `velocity_limit` | 0 | Reject commands exceeding this velocity limit (rad/s); B1 requires an explicit positive value. For other motors, zero uses the motor profile limit; values above the profile limit are capped |
+| `torque_limit` | 0 | Reject commands exceeding this torque limit (N·m); zero uses the profile limit; values above the profile limit are capped |
 | `kp_limit` | 200 | Reject commands exceeding this kp limit (N·m/rad) |
 | `kd_limit` | 10 | Reject commands exceeding this kd limit (N·m·s/rad) |
 | `warn_temperature` | 70 | Issue a warning when motor temperature feedback exceeds this value (°C) |
