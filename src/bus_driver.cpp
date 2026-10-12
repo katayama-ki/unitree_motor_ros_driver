@@ -188,8 +188,7 @@ void BusDriver::scan(Transport & transport)
       motor.latest.id = id;
       motor.makeDue(now);
       inspectFeedback(motor, feedback, now);
-      motor.shouldPublish(
-        config_, now, feedback.stamp_ns);  // Called only to record this scan feedback as published.
+      motor.shouldPublish(config_, now);  // Called only to record this scan feedback as published.
     }
     publish_(feedback);
   }
@@ -300,7 +299,7 @@ void BusDriver::loop(Transport & transport)
     if (success) {
       output = toOutput(config_.motor_type, rotor);
       inspectFeedback(motor, output, completed);
-      publish = motor.shouldPublish(config_, completed, output.stamp_ns);
+      publish = motor.shouldPublish(config_, completed);
     }
     // A command/fault transition during sendRecv must retain its immediate deadline.
     // A regular late transaction drops missed cycles and moves to a future deadline.
