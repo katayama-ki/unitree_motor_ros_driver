@@ -91,6 +91,50 @@ TEST(Configuration, InvalidParametersFailBeforeOpeningBus)
   EXPECT_THROW(ud::parseMotorType("Go"), std::invalid_argument);
   EXPECT_THROW(ud::parseTimeoutAction("coast"), std::invalid_argument);
 }
+TEST(Configuration, B1RequiresPositiveVelocityLimitBeforeOpeningBus)
+{
+  auto c = config(ud::MotorType::B1);
+  EXPECT_THROW(c.normalize(), std::invalid_argument);
+  bool opened = false;
+  EXPECT_THROW(
+    (ud::BusDriver(
+      c,
+      [&opened]() -> std::unique_ptr<ud::Transport> {
+        opened = true;
+        return nullptr;
+      },
+      [](const ud::Feedback &) {}, [](ud::Severity, const std::string &) {})),
+    std::invalid_argument);
+  EXPECT_FALSE(opened);
+  c.velocity_limit = 10;
+  EXPECT_TRUE(c.normalize().empty());
+  EXPECT_DOUBLE_EQ(10, c.velocity_limit);
+  for (const auto type : {ud::MotorType::A1, ud::MotorType::GO_M8010_6}) {
+    auto other = config(type);
+    other.normalize();
+    EXPECT_DOUBLE_EQ(ud::profile(type).velocity_limit, other.velocity_limit);
+  }
+}
+TEST(CommandValidation, B1OutputVelocityCeilingFitsRotorProtocol)
+{
+  auto c = config(ud::MotorType::B1);
+  c.velocity_limit = 29.5;
+  c.normalize();
+  EXPECT_DOUBLE_EQ(29.5, ud::profile(ud::MotorType::B1).velocity_limit);
+  ud::Command cmd;
+  std::string reason;
+  for (const float velocity : {-29.5f, 29.5f}) {
+    cmd.velocity = velocity;
+    EXPECT_TRUE(ud::validateCommand(c, cmd, reason));
+    EXPECT_NEAR(velocity * 8.66, ud::toWire(c.motor_type, cmd).values.velocity, 1e-4);
+  }
+  cmd.velocity = 29.6;
+  EXPECT_FALSE(ud::validateCommand(c, cmd, reason));
+  // The rotor-side protocol check still applies independently of profile limits.
+  c.velocity_limit = 30;
+  EXPECT_FALSE(ud::validateCommand(c, cmd, reason));
+  EXPECT_NE(std::string::npos, reason.find("protocol"));
+}
 TEST(Conversion, OutputRotorRoundTripAndSpecialGains)
 {
   for (const auto type : {ud::MotorType::A1, ud::MotorType::B1, ud::MotorType::GO_M8010_6}) {
@@ -162,6 +206,7 @@ TEST(CommandValidation, RejectsNonfiniteLimitsAndProtocolOverflow)
   EXPECT_FALSE(ud::validateCommand(c, cmd, reason));
   EXPECT_NE(std::string::npos, reason.find("protocol"));
   c = config(ud::MotorType::B1);
+  c.velocity_limit = 10;
   c.kd_limit = 100;
   c.normalize();
   EXPECT_TRUE(ud::validateCommand(c, cmd, reason));  // B1 x512, not A1 x1024.

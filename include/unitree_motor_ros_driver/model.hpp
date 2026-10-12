@@ -57,10 +57,10 @@ struct MotorProfile
 // Values used by libUnitreeMotorSDK_Linux64.so, Git blob
 // ccd5cee41a3c32bb810e556327e1400bea3fd3de.
 constexpr MotorProfile kA1Profile{9.1, 21.0, 33.5};
-// Unitree's B1-16 product page does not publish a max speed. 15.55 rad/s is the calf
-// velocity limit in Unitree's official b1_description; it is independently consistent
-// with ~149.3 RPM reported for B1-16 by a third-party database.
-constexpr MotorProfile kB1Profile{8.66, 15.55, 140.0};
+// B1's hardware max speed is unknown. Use a conservative output-side protocol
+// ceiling: 29.5 rad/s * 8.66 = 255.47 rad/s on the rotor side (signed 16-bit x128).
+// B1 requires an explicit positive velocity_limit for the application.
+constexpr MotorProfile kB1Profile{8.66, 29.5, 140.0};
 constexpr MotorProfile kGoProfile{6.33, 30.0, 23.7};
 MotorProfile profile(MotorType type);
 MotorType parseMotorType(const std::string & value);

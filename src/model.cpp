@@ -128,6 +128,9 @@ std::vector<std::string> Config::normalize()
     std::isfinite(io_rate_warn_ratio) && io_rate_warn_ratio > 0 && io_rate_warn_ratio <= 1,
     "io_rate_warn_ratio (0..1]");
   require(finiteNonnegative(velocity_limit), "velocity_limit");
+  require(
+    motor_type != MotorType::B1 || velocity_limit > 0,
+    "velocity_limit (B1 requires an explicit value > 0 in output-side rad/s)");
   require(finiteNonnegative(torque_limit), "torque_limit");
   require(finiteNonnegative(kp_limit), "kp_limit");
   require(finiteNonnegative(kd_limit), "kd_limit");
@@ -137,7 +140,7 @@ std::vector<std::string> Config::normalize()
     "warn_temperature < stop_temperature (-128..127)");
   const auto hardware = profile(motor_type);
   if (velocity_limit > hardware.velocity_limit) {
-    warnings.push_back("velocity_limit exceeds hardware limit; using hardware limit");
+    warnings.push_back("velocity_limit exceeds motor profile limit; using motor profile limit");
   }
   if (torque_limit > hardware.torque_limit) {
     warnings.push_back("torque_limit exceeds hardware limit; using hardware limit");
