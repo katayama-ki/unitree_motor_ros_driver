@@ -75,13 +75,18 @@ Every private parameter is exposed as an argument in `motor_driver.launch`.
 | `idle_state_pub_rate` | 10 | Publication target per other control state |
 | `timeout_action` | `zero_torque` | `zero_torque`, `damping`, or `brake` |
 | `timeout_damping_kd` | 1.0 | Output-side damping gain; for damping it must be positive, within kd_limit, and representable by the SDK |
-| `velocity_limit` | 0 | Absolute output rad/s limit; zero or above hardware maximum uses hardware maximum |
-| `torque_limit` | 0 | Absolute output Nm limit; same hardware policy |
+| `velocity_limit` | 0 | Maximum absolute MotorCommand.velocity accepted by the driver; zero or above motor profile limit uses the profile limit |
+| `torque_limit` | 0 | Maximum absolute MotorCommand.torque accepted by the driver; zero or above motor profile limit uses the profile limit |
 | `kp_limit` | 200 | Nonnegative output stiffness limit |
 | `kd_limit` | 10 | Nonnegative output damping limit |
 | `warn_temperature` | 70 | Warn when temperature is strictly higher |
 | `stop_temperature` | 80 | Latch a fault when temperature is strictly higher |
 | `stop_on_motor_error` | true | Latch a fault on nonzero merror |
+
+`velocity_limit`, `torque_limit`, `kp_limit`, and `kd_limit` validate individual MotorCommand fields.
+They do not guarantee corresponding limits on the actual motor motion or total closed-loop torque.
+Feedback exceeding `velocity_limit` or `torque_limit` is logged as a warning
+but does not by itself stop the motor.
 
 Rates/publication rates and command_timeout must be finite and positive
 (`1e-9` through `1e9`); io_retry_rate additionally accepts zero. Limit parameters
