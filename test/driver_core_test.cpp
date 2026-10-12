@@ -233,13 +233,13 @@ TEST(Scheduler, DropsMissedCyclesAndPublishesPerMotor)
   ud::Command cmd;
   one.acceptCommand(cmd, at(1));
   two.acceptCommand(cmd, at(1));
-  EXPECT_TRUE(one.shouldPublish(c, at(1), 1));
-  EXPECT_FALSE(one.shouldPublish(c, at(1.05), 2));
-  EXPECT_TRUE(two.shouldPublish(c, at(1.05), 2));
-  EXPECT_TRUE(one.shouldPublish(c, at(1.1), 3));
+  EXPECT_TRUE(one.shouldPublish(c, at(1)));
+  EXPECT_FALSE(one.shouldPublish(c, at(1.05)));
+  EXPECT_TRUE(two.shouldPublish(c, at(1.05)));
+  EXPECT_TRUE(one.shouldPublish(c, at(1.1)));
   c.active_state_pub_rate = 1000;
-  EXPECT_FALSE(one.shouldPublish(c, at(1.11), 3));
-  EXPECT_TRUE(one.shouldPublish(c, at(1.11), 4));
+  EXPECT_TRUE(one.shouldPublish(c, at(1.11)));
+  EXPECT_TRUE(one.shouldPublish(c, at(1.11)));
 }
 
 struct Record
