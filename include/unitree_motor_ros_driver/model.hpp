@@ -105,7 +105,6 @@ struct MotorContext {
   TimePoint next_due{};
   uint64_t schedule_revision = 0;
   TimePoint last_published{};
-  uint64_t last_published_stamp = 0;
   bool has_published = false;
   int previous_error = 0;
   TimePoint rate_window{};
@@ -118,7 +117,7 @@ struct MotorContext {
   double ioRate(const Config& config) const;
   double pubRate(const Config& config) const;
   WireCommand wireCommand(const Config& config) const;
-  bool shouldPublish(const Config& config, TimePoint now, uint64_t stamp_ns);
+  bool shouldPublish(const Config& config, TimePoint now);
   void makeDue(TimePoint now);
 };
 

@@ -132,7 +132,7 @@ encoding/saturation bounds and also checks float rounding at integer boundaries.
 - States are published only after successful matching replies; no cached state
   timer exists. Each motor has its own publication limit. ROS time is captured
   immediately after SDK receive, while scheduling remains independent of ROS time.
-  Repeated receive timestamps (e.g. paused simulated time) are suppressed per motor.
+  Repeated receive timestamps (e.g. paused simulated time) are published subject to the configured state publication rate.
 
 ## Implementation and tests
 

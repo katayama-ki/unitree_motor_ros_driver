@@ -239,13 +239,11 @@ WireCommand MotorContext::wireCommand(const Config& config) const {
   }
   return toWire(config.motor_type, zero, Mode::BRAKE);
 }
-bool MotorContext::shouldPublish(const Config& config, TimePoint now, uint64_t stamp_ns) {
-  if (has_published && stamp_ns == last_published_stamp) return false;
+bool MotorContext::shouldPublish(const Config& config, TimePoint now) {
   const double target = pubRate(config);
   if (!has_published || target >= ioRate(config) || now - last_published >= period(target)) {
     has_published = true;
     last_published = now;
-    last_published_stamp = stamp_ns;
     return true;
   }
   return false;
