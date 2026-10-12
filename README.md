@@ -75,8 +75,8 @@ Every private parameter is exposed as an argument in `motor_driver.launch`.
 | `idle_state_pub_rate` | 10 | Publication target per other control state |
 | `timeout_action` | `zero_torque` | `zero_torque`, `damping`, or `brake` |
 | `timeout_damping_kd` | 1.0 | Output-side damping gain; for damping it must be positive, within kd_limit, and representable by the SDK |
-| `velocity_limit` | 0 | Maximum absolute MotorCommand.velocity accepted by the driver; zero or above motor profile limit uses the profile limit |
-| `torque_limit` | 0 | Maximum absolute MotorCommand.torque accepted by the driver; zero or above motor profile limit uses the profile limit |
+| `velocity_limit` | 0 | Maximum absolute MotorCommand.velocity in output-side rad/s; B1 requires an explicit value (omitted or zero is fatal). For other motors zero uses the profile limit; values above the profile limit are capped |
+| `torque_limit` | 0 | Maximum absolute MotorCommand.torque accepted by the driver; zero uses the profile limit; values above the profile limit are capped |
 | `kp_limit` | 200 | Nonnegative output stiffness limit |
 | `kd_limit` | 10 | Nonnegative output damping limit |
 | `warn_temperature` | 70 | Warn when temperature is strictly higher |
@@ -95,13 +95,18 @@ temperature thresholds must be in the feedback range `[-128, 127]`, with warn
 strictly lower than stop. Invalid parameters cause failure before serial open.
 Publication targets above IO targets produce startup warnings.
 
-Hardware output limits and SDK gear ratios:
+Output-side profile limits and SDK gear ratios:
 
 | Motor | Gear ratio | Velocity (rad/s) | Torque (Nm) |
 | --- | --- | --- | --- |
 | A1 | 9.1 | 21 | 33.5 |
-| B1 | 8.66 | 15.55 | 140 |
+| B1 | 8.66 | 29.5 (protocol ceiling) | 140 |
 | GO-M8010-6 | 6.33 | 30 | 23.7 |
+
+B1's hardware maximum velocity is unknown. Its 29.5 rad/s output-side ceiling
+corresponds to 255.47 rad/s on the rotor side, within the signed 16-bit x128
+protocol range. Set `velocity_limit` explicitly for the application; B1 startup
+with an omitted or zero value logs FATAL and exits before opening the serial port.
 
 Rotor commands use `q_out*r`, `dq_out*r`, `tau_out/r`, and gains divided by `r²`.
 A1/B1 additionally use `kp/26.07` and `kd*100`, as documented in
