@@ -97,7 +97,7 @@ int main(int argc, char ** argv)
   ros::NodeHandle node("~");
   try {
     const auto config = readConfig(node);
-    auto publisher = node.advertise<unitree_motor_ros_driver::MotorState>("state", 100);
+    auto publisher = node.advertise<unitree_motor_ros_driver::MotorState>("state", 5);
     unitree_driver::BusDriver driver(
       config,
       [config] {
@@ -119,7 +119,7 @@ int main(int argc, char ** argv)
       logRos);
     driver.start();
     auto subscriber = node.subscribe<unitree_motor_ros_driver::MotorCommand>(
-      "command", 100, [&driver](const unitree_motor_ros_driver::MotorCommand::ConstPtr & msg) {
+      "command", 5, [&driver](const unitree_motor_ros_driver::MotorCommand::ConstPtr & msg) {
         unitree_driver::Command command;
         command.id = msg->id;
         command.position = msg->position;
