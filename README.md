@@ -55,7 +55,7 @@ This actively compensates motor friction. Choose `timeout_action` to match the
 mechanism: `zero_torque` actively cancels friction; `damping` resists motion;
 `brake` uses the protocol's "locked" mode, whose physical behavior needs checking
 on the actual motor. Shutdown always attempts BRAKE on every detected motor,
-logs each acknowledgment/failure, then closes the port.
+retries once if the first transaction fails, logs the final result, then closes the port.
 
 ## Parameters
 
