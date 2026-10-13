@@ -469,6 +469,43 @@ TEST(BusDriver, NoDetectedMotorIsStartupFailure)
   EXPECT_TRUE(h.bus->published.empty());
   EXPECT_TRUE(h.bus->closed);
 }
+TEST(BusDriver, ShutdownBrakeAttemptsAndFailureLogs)
+{
+  for (const auto outcomes :
+       {std::deque<int>{0}, std::deque<int>{-1, 0}, std::deque<int>{-1, -1, 0}})
+  {
+    auto c = config();
+    c.motor_id_scan_max = 0;
+    c.idle_io_rate = c.idle_state_pub_rate = 0.01;
+    Harness h(c);
+    h.driver->start();
+    // Wait for the first runtime IO; the next is due in 100 seconds.
+    ASSERT_TRUE(h.bus->wait([&] { return h.bus->transactions.size() >= 2; }));
+    {
+      std::lock_guard<std::mutex> lock(h.bus->mutex);
+      h.bus->transactions.clear();
+      h.bus->logs.clear();
+      h.bus->outcomes[0] = outcomes;
+    }
+    h.driver->stop();
+    std::lock_guard<std::mutex> lock(h.bus->mutex);
+    EXPECT_EQ(outcomes.front() == 0 ? 1u : 2u, h.bus->transactions.size());
+    for (const auto & record : h.bus->transactions) {
+      EXPECT_EQ(0, record.command.values.id);
+      EXPECT_EQ(ud::Mode::BRAKE, record.command.mode);
+      EXPECT_EQ(0, record.command.values.position);
+      EXPECT_EQ(0, record.command.values.velocity);
+      EXPECT_EQ(0, record.command.values.torque);
+      EXPECT_EQ(0, record.command.values.kp);
+      EXPECT_EQ(0, record.command.values.kd);
+    }
+    const bool failed = outcomes.size() == 3;
+    EXPECT_FALSE(h.bus->hasLog("sendRecv failed"));
+    EXPECT_EQ(failed, h.bus->hasLog("Motor id 0 shutdown BRAKE failed after two attempts"));
+    EXPECT_EQ(!failed, h.bus->hasLog("shutdown BRAKE acknowledged"));
+    EXPECT_TRUE(h.bus->closed);
+  }
+}
 TEST(BusDriver, ScanFaultLatchesOnlyAffectedMotor)
 {
   Harness h(config());

@@ -319,13 +319,15 @@ void BusDriver::shutdown(Transport & transport)
     Command zero;
     zero.id = id;
     Feedback rotor;
-    const bool ok = transact(transport, toWire(config_.motor_type, zero, Mode::BRAKE), rotor);
+    const auto brake = toWire(config_.motor_type, zero, Mode::BRAKE);
+    const bool ok =
+      transact(transport, brake, rotor, false) || transact(transport, brake, rotor, false);
     std::lock_guard<std::mutex> lock(mutex_);
     if (ok) {
       inspectFeedback(motors_.at(id), toOutput(config_.motor_type, rotor), Clock::now());
       logMotor(Severity::INFO, id, "shutdown BRAKE acknowledged");
     } else {
-      logMotor(Severity::ERROR, id, "shutdown BRAKE failed or received mismatched reply");
+      logMotor(Severity::ERROR, id, "shutdown BRAKE failed after two attempts");
     }
   }
 }
