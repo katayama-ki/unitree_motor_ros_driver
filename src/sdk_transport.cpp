@@ -29,6 +29,8 @@ namespace {
 }
 class SdkTransport : public Transport {
  public:
+  // Keep SerialPort's constructor defaults: the bundled SDK's typed sendRecv
+  // overload reconfigures baud rate and receive length according to the motor type.
   SdkTransport(const std::string& port, MotorType type, std::function<uint64_t()> stamp)
     : type_(sdkType(type)), stamp_(std::move(stamp)), serial_(port) {
     if (std::abs(queryGearRatio(type_) - profile(type).sdk_gear_ratio) > 1e-5)
