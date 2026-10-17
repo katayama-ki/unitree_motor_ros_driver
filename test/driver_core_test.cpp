@@ -466,6 +466,47 @@ TEST(BusDriver, NoDetectedMotorIsStartupFailure)
   EXPECT_TRUE(h.bus->published.empty());
   EXPECT_TRUE(h.bus->closed);
 }
+TEST(BusDriver, StartupCancellationStopsBeforeFirstTransaction)
+{
+  Harness h(config());
+  EXPECT_THROW(h.driver->start([] { return true; }), std::runtime_error);
+  EXPECT_FALSE(h.driver->running());
+  EXPECT_TRUE(h.driver->ids().empty());
+  std::lock_guard<std::mutex> lock(h.bus->mutex);
+  EXPECT_TRUE(h.bus->transactions.empty());
+  EXPECT_TRUE(h.bus->closed);
+}
+TEST(BusDriver, StartupCancellationSkipsRetryAndRemainingIdsButBrakesDetectedMotors)
+{
+  for (const bool detected : {false, true}) {
+    // Also check cancellation during the final ID, before entering runtime IO.
+    for (const int scan_max : {0, 1}) {
+      auto c = config();
+      c.motor_id_scan_max = scan_max;
+      Harness h(c, detected);
+      try {
+        h.driver->start([&] {
+          std::lock_guard<std::mutex> lock(h.bus->mutex);
+          return !h.bus->transactions.empty();
+        });
+        FAIL() << "Startup cancellation must throw";
+      } catch (const std::runtime_error & error) {
+        EXPECT_STREQ("Stopped during startup scan", error.what());
+      }
+      EXPECT_FALSE(h.driver->running());
+      std::lock_guard<std::mutex> lock(h.bus->mutex);
+      EXPECT_EQ(detected ? 2u : 1u, h.bus->transactions.size());
+      for (const auto & record : h.bus->transactions) {
+        EXPECT_EQ(0, record.command.values.id);
+        EXPECT_EQ(ud::Mode::BRAKE, record.command.mode);
+      }
+      EXPECT_EQ(detected, h.bus->hasLog("shutdown BRAKE acknowledged"));
+      EXPECT_FALSE(h.bus->hasLog("Detected motor IDs:"));
+      EXPECT_EQ(1u, h.bus->owners.size());
+      EXPECT_TRUE(h.bus->closed);
+    }
+  }
+}
 TEST(BusDriver, ShutdownBrakeAttemptsAndFailureLogs)
 {
   for (const auto outcomes :
