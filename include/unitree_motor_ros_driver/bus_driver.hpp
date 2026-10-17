@@ -38,7 +38,9 @@ public:
 
   BusDriver(Config config, Factory factory, Publish publish, Log log);
   ~BusDriver();
-  void start();  // Waits for the startup scan; throws if no motor was detected.
+  // Waits for the startup scan; throws if cancelled or no motor was detected.
+  // should_stop is called on the bus thread between scan transactions.
+  void start(std::function<bool()> should_stop = {});
   void stop();
   bool submit(const Command & command);
   bool running() const;
@@ -63,6 +65,7 @@ private:
   Factory factory_;
   Publish publish_;
   Log log_;
+  std::function<bool()> startup_should_stop_;
   mutable std::mutex mutex_;
   std::condition_variable cv_;
   std::map<uint8_t, MotorContext> motors_;
