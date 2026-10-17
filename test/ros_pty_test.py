@@ -30,6 +30,7 @@ def crc_ccitt(data):
 
 class RosPtyTest(unittest.TestCase):
     def setUp(self):
+        self.cancel_scan = self._testMethodName == "test_shutdown_during_startup_scan"
         self.master, self.slave = pty.openpty()
         tty.setraw(self.slave)
         self.lock = threading.Lock()
@@ -51,7 +52,8 @@ class RosPtyTest(unittest.TestCase):
         self.process = subprocess.Popen([
             executable, "__name:=pty_driver",
             "_serial_port:=" + os.ttyname(self.slave), "_motor_type:=GO-M8010-6",
-            "_motor_id_scan_max:=1", "_command_timeout:=0.2", "_timeout_action:=brake",
+            "_motor_id_scan_max:=" + ("14" if self.cancel_scan else "1"),
+            "_command_timeout:=0.2", "_timeout_action:=brake",
             "_active_io_rate:=100", "_idle_io_rate:=20", "_idle_state_pub_rate:=20",
         ], stdout=self.output, stderr=subprocess.STDOUT, env=environment)
 
@@ -91,6 +93,8 @@ class RosPtyTest(unittest.TestCase):
                     values = struct.unpack("<hhiHH", packet[3:15])
                     with self.lock:
                         self.commands.append((motor_id, (mode >> 4) & 7, values))
+                    if self.cancel_scan and motor_id != 0:
+                        continue
                     # Output feedback is approx q=1 rad, dq=2 rad/s, tau=3 Nm.
                     # ID 1 has a startup over-current fault; ID 0 stays normal.
                     payload = struct.pack("<2sBhhibH", b"\xfe\xee", mode,
@@ -115,6 +119,21 @@ class RosPtyTest(unittest.TestCase):
             time.sleep(0.01)
         self.output.seek(0)
         self.fail("Timed out waiting for driver behavior:\n" + self.output.read())
+
+    def test_shutdown_during_startup_scan(self):
+        # ID 0 responds; ID 1 blocks in the SDK receive while startup is pending.
+        self.wait_for(lambda: any(motor_id == 1 for motor_id, _, _ in self.commands))
+        self.process.send_signal(signal.SIGINT)
+        self.assertEqual(self.process.wait(timeout=5), 0)
+        with self.lock:
+            self.assertLess(max(c[0] for c in self.commands), 14)
+            self.assertEqual(self.commands[-1], (0, 0, (0, 0, 0, 0, 0)))
+        self.output.seek(0)
+        log = self.output.read()
+        self.assertNotIn("Detected motor IDs:", log)
+        self.assertNotIn("startup failed", log)
+        self.assertIn("Motor id 0 shutdown BRAKE acknowledged", log)
+        self.assertIn("Serial bus closed", log)
 
     def test_topics_conversion_fault_watchdog_and_shutdown(self):
         self.wait_for(lambda: self.publisher.get_num_connections() > 0 and

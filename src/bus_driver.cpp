@@ -13,10 +13,11 @@ BusDriver::BusDriver(Config config, Factory factory, Publish publish, Log log)
 }
 BusDriver::~BusDriver() { stop(); }
 
-void BusDriver::start() {
+void BusDriver::start(std::function<bool()> should_stop) {
   std::unique_lock<std::mutex> lock(mutex_);
   if (started_) throw std::logic_error("BusDriver can only be started once");
   started_ = true;
+  startup_should_stop_ = std::move(should_stop);
   thread_ = std::thread(&BusDriver::worker, this);
   cv_.wait(lock, [this] { return ready_; });
   if (startup_error_) {
@@ -115,19 +116,26 @@ void BusDriver::inspectFeedback(MotorContext& motor, const Feedback& f, TimePoin
   }
 }
 void BusDriver::scan(Transport& transport) {
-  for (const uint8_t id : scanIds(config_.motor_type, config_.motor_id_scan_max)) {
+  const auto check_stopped = [this] {
     {
       std::lock_guard<std::mutex> lock(mutex_);
       if (stopping_) throw std::runtime_error("Stopped during startup scan");
     }
+    if (startup_should_stop_ && startup_should_stop_())
+      throw std::runtime_error("Stopped during startup scan");
+  };
+  for (const uint8_t id : scanIds(config_.motor_type, config_.motor_id_scan_max)) {
+    check_stopped();
     Command zero;
     zero.id = id;
     const auto brake = toWire(config_.motor_type, zero, Mode::BRAKE);
     Feedback rotor;
     // A failed sendRecv is expected for an absent ID during discovery. Keep
     // mismatched replies and transaction exceptions visible even during the scan.
-    if (!transact(transport, brake, rotor, false) &&
-        !transact(transport, brake, rotor, false)) continue;
+    if (!transact(transport, brake, rotor, false)) {
+      check_stopped();
+      if (!transact(transport, brake, rotor, false)) continue;
+    }
     const auto feedback = toOutput(config_.motor_type, rotor);
     const auto now = Clock::now();
     {
@@ -141,6 +149,7 @@ void BusDriver::scan(Transport& transport) {
     }
     publish_(feedback);
   }
+  check_stopped();
   std::lock_guard<std::mutex> lock(mutex_);
   if (motors_.empty()) throw std::runtime_error("No motors detected on serial bus");
   std::ostringstream text;

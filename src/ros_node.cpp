@@ -94,7 +94,7 @@ int main(int argc, char** argv) {
         msg.error = f.error;
         publisher.publish(msg);
       }, logRos);
-    driver.start();
+    driver.start([] { return ros::isShuttingDown() || !ros::ok(); });
     auto subscriber = node.subscribe<unitree_motor_ros_driver::MotorCommand>(
       "command", 5, [&driver](const unitree_motor_ros_driver::MotorCommand::ConstPtr& msg) {
         unitree_driver::Command command;
@@ -119,6 +119,7 @@ int main(int argc, char** argv) {
       return 1;
     }
   } catch (const std::exception& error) {
+    if (ros::isShuttingDown() || !ros::ok()) return 0;
     ROS_FATAL_STREAM("Unitree motor driver startup failed: " << error.what());
     return 1;
   }
