@@ -71,7 +71,8 @@ TEST(Configuration, InvalidParametersFailBeforeOpeningBus)
   }
   for (double ud::Config::* field :
        {&ud::Config::command_timeout, &ud::Config::active_io_rate, &ud::Config::idle_io_rate,
-        &ud::Config::active_state_pub_rate, &ud::Config::idle_state_pub_rate})
+        &ud::Config::active_state_pub_rate, &ud::Config::idle_state_pub_rate,
+        &ud::Config::status_pub_rate, &ud::Config::status_check_rate})
   {
     for (const double value : {nan, inf, -1.0, 0.0, 1e-300}) {
       auto c = config();
@@ -418,6 +419,16 @@ struct Harness
     driver->stop();
   }
 };
+TEST(BusDriver, ExposesNormalizedStatusRates)
+{
+  auto c = config();
+  c.status_pub_rate = 100;
+  c.status_check_rate = 20;
+  Harness h(c);
+  EXPECT_DOUBLE_EQ(20, h.driver->config().status_pub_rate);
+  EXPECT_DOUBLE_EQ(20, h.driver->config().status_check_rate);
+  EXPECT_TRUE(h.bus->hasLog("status_pub_rate exceeds status_check_rate; capped"));
+}
 TEST(BusDriver, ScanRetriesAndRejectsUnknownIdWithoutFeedingWatchdog)
 {
   auto c = config();
@@ -428,6 +439,12 @@ TEST(BusDriver, ScanRetriesAndRejectsUnknownIdWithoutFeedingWatchdog)
   h.bus->outcomes[0] = {-2, 0};
   h.driver->start();
   EXPECT_EQ((std::vector<uint8_t>{0, 1}), h.driver->ids());
+  const auto initial = h.driver->statuses();
+  ASSERT_EQ(2u, initial.size());
+  EXPECT_EQ(0, initial[0].id);
+  EXPECT_EQ(1, initial[1].id);
+  EXPECT_EQ(ud::ControlState::IDLE, initial[0].control_state);
+  EXPECT_FALSE(initial[0].io_error);
   ud::Command cmd;
   cmd.id = 2;
   EXPECT_FALSE(h.driver->submit(cmd));
@@ -438,6 +455,7 @@ TEST(BusDriver, ScanRetriesAndRejectsUnknownIdWithoutFeedingWatchdog)
   cmd.torque = std::numeric_limits<float>::quiet_NaN();
   EXPECT_FALSE(h.driver->submit(cmd));
   ASSERT_TRUE(h.bus->wait([&] { return h.bus->hasLog("watchdog expired"); }));
+  EXPECT_EQ(ud::ControlState::CMD_TIMED_OUT, h.driver->statuses()[0].control_state);
   h.driver->stop();
   std::lock_guard<std::mutex> lock(h.bus->mutex);
   EXPECT_EQ(1u, h.bus->owners.size());
@@ -552,6 +570,7 @@ TEST(BusDriver, ScanFaultLatchesOnlyAffectedMotor)
   Harness h(config());
   h.bus->feedback[0].error = 2;
   h.driver->start();
+  EXPECT_EQ(ud::ControlState::FAULT_LATCHED, h.driver->statuses()[0].control_state);
   ud::Command cmd;
   cmd.torque = 1;
   EXPECT_TRUE(h.driver->submit(cmd));
@@ -576,6 +595,7 @@ TEST(BusDriver, IoFailureDisablesRetryAndNeverPublishesMismatchedFeedback)
     h.bus->outcomes[0] = {-2, -1};
   }
   ASSERT_TRUE(h.bus->wait([&] { return h.bus->hasLog("io_error set"); }));
+  EXPECT_TRUE(h.driver->statuses()[0].io_error);
   size_t count;
   {
     std::lock_guard<std::mutex> lock(h.bus->mutex);
@@ -611,10 +631,12 @@ TEST(BusDriver, RetryUsesFreshCommandAndOneSuccessRecovers)
     h.bus->outcomes[0] = {-1, -2};
   }
   ASSERT_TRUE(h.bus->wait([&] { return h.bus->hasLog("io_error set"); }));
+  EXPECT_TRUE(h.driver->statuses()[0].io_error);
   ud::Command cmd;
   cmd.torque = 3;
   ASSERT_TRUE(h.driver->submit(cmd));
   ASSERT_TRUE(h.bus->wait([&] { return h.bus->hasLog("IO recovered"); }));
+  EXPECT_FALSE(h.driver->statuses()[0].io_error);
   std::lock_guard<std::mutex> lock(h.bus->mutex);
   EXPECT_TRUE(h.bus->hasCommand(0, ud::Mode::FOC));
   EXPECT_TRUE(h.bus->hasLog("sendRecv failed"));

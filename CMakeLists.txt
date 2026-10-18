@@ -8,7 +8,7 @@ add_compile_options(-Wall -Wextra -Wpedantic)
 find_package(catkin REQUIRED COMPONENTS roscpp std_msgs message_generation)
 find_package(Threads REQUIRED)
 
-add_message_files(FILES MotorCommand.msg MotorState.msg)
+add_message_files(FILES MotorCommand.msg MotorState.msg MotorStatus.msg MotorStatusArray.msg)
 generate_messages(DEPENDENCIES std_msgs)
 catkin_package(INCLUDE_DIRS include LIBRARIES unitree_driver_core unitree_driver_sdk
                CATKIN_DEPENDS roscpp std_msgs message_runtime)
