@@ -12,6 +12,8 @@
   <arg name="io_retry_rate" default="0"/>
   <arg name="active_state_pub_rate" default="100"/>
   <arg name="idle_state_pub_rate" default="10"/>
+  <arg name="state_pub_queue" default="5"/>
+  <arg name="command_sub_queue" default="5"/>
   <arg name="status_pub_rate" default="5"/>
   <arg name="status_check_rate" default="50"/>
   <arg name="velocity_limit" default="0"/>
@@ -36,6 +38,8 @@
     <param name="io_retry_rate" value="$(arg io_retry_rate)" type="double"/>
     <param name="active_state_pub_rate" value="$(arg active_state_pub_rate)" type="double"/>
     <param name="idle_state_pub_rate" value="$(arg idle_state_pub_rate)" type="double"/>
+    <param name="state_pub_queue" value="$(arg state_pub_queue)" type="int"/>
+    <param name="command_sub_queue" value="$(arg command_sub_queue)" type="int"/>
     <param name="status_pub_rate" value="$(arg status_pub_rate)" type="double"/>
     <param name="status_check_rate" value="$(arg status_check_rate)" type="double"/>
     <param name="velocity_limit" value="$(arg velocity_limit)" type="double"/>

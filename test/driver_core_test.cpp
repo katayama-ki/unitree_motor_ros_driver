@@ -80,6 +80,13 @@ TEST(Configuration, InvalidParametersFailBeforeOpeningBus)
       EXPECT_THROW(c.normalize(), std::invalid_argument);
     }
   }
+  for (int ud::Config::* field : {&ud::Config::state_pub_queue, &ud::Config::command_sub_queue}) {
+    for (const int value : {0, -1}) {
+      auto c = config();
+      c.*field = value;
+      EXPECT_THROW(c.normalize(), std::invalid_argument);
+    }
+  }
   auto c = config();
   c.timeout_action = ud::TimeoutAction::DAMPING;
   c.timeout_damping_kd = 0;

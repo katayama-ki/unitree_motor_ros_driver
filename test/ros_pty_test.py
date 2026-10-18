@@ -67,6 +67,10 @@ class RosPtyTest(unittest.TestCase):
             os.path.dirname(os.path.dirname(executable)), "libpty_serial_shim.so"
         )
         extra_params = {
+            "test_topics_conversion_fault_watchdog_and_shutdown": [
+                "_state_pub_queue:=2",
+                "_command_sub_queue:=3",
+            ],
             "test_invalid_status_rate_fails_before_serial_open": [
                 "_status_pub_rate:=0"
             ],

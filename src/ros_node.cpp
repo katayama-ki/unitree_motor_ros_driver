@@ -58,6 +58,8 @@ unitree_driver::Config readConfig(const ros::NodeHandle & node)
   parameter(node, "io_retry_rate", c.io_retry_rate);
   parameter(node, "active_state_pub_rate", c.active_state_pub_rate);
   parameter(node, "idle_state_pub_rate", c.idle_state_pub_rate);
+  parameter(node, "state_pub_queue", c.state_pub_queue);
+  parameter(node, "command_sub_queue", c.command_sub_queue);
   parameter(node, "timeout_action", action);
   c.timeout_action = unitree_driver::parseTimeoutAction(action);
   parameter(node, "timeout_damping_kd", c.timeout_damping_kd);
@@ -103,7 +105,7 @@ int main(int argc, char ** argv)
   ros::NodeHandle node("~");
   try {
     const auto config = readConfig(node);
-    auto publisher = node.advertise<unitree_motor_ros_driver::MotorState>("state", 5);
+    ros::Publisher publisher;
     unitree_driver::BusDriver driver(
       config,
       [config] {
@@ -123,11 +125,14 @@ int main(int argc, char ** argv)
         publisher.publish(msg);
       },
       logRos);
+    publisher = node.advertise<unitree_motor_ros_driver::MotorState>(
+      "state", driver.config().state_pub_queue);
     driver.start([] { return ros::isShuttingDown() || !ros::ok(); });
     auto status_publisher =
       node.advertise<unitree_motor_ros_driver::MotorStatusArray>("status", 1, true);
     auto subscriber = node.subscribe<unitree_motor_ros_driver::MotorCommand>(
-      "command", 5, [&driver](const unitree_motor_ros_driver::MotorCommand::ConstPtr & msg) {
+      "command", driver.config().command_sub_queue,
+      [&driver](const unitree_motor_ros_driver::MotorCommand::ConstPtr & msg) {
         unitree_driver::Command command;
         command.id = msg->id;
         command.position = msg->position;
