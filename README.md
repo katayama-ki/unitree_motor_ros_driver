@@ -109,6 +109,8 @@ Every private parameter is exposed as an argument in `motor_driver.launch`.
 | `io_retry_rate` | 0 | Retry rate (Hz) after `io_error` is set; zero disables automatic retries|
 | `active_state_pub_rate` | 100 | Target state publication rate (Hz) per ACTIVE motor |
 | `idle_state_pub_rate` | 10 | Target state publication rate (Hz) per motor in any other control state |
+| `state_pub_queue` | 5 | Queue size for the `~state` publisher |
+| `command_sub_queue` | 5 | Queue size for the `~command` subscriber |
 | `status_pub_rate` | 5 | Periodic status publication rate (Hz); status changes trigger immediate publication. Capped at `status_check_rate`. |
 | `status_check_rate` | 50 | Status check rate (Hz) |
 | `velocity_limit` | 0 | Reject commands exceeding this velocity limit (rad/s); B1 requires an explicit positive value. For other motors, zero uses the motor profile limit; values above the profile limit are capped |

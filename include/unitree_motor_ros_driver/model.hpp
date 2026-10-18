@@ -116,6 +116,8 @@ struct Config
   double io_retry_rate = 0;
   double active_state_pub_rate = 100;
   double idle_state_pub_rate = 10;
+  int state_pub_queue = 5;
+  int command_sub_queue = 5;
   double status_pub_rate = 5;
   double status_check_rate = 50;
   TimeoutAction timeout_action = TimeoutAction::ZERO_TORQUE;

@@ -117,6 +117,8 @@ std::vector<std::string> Config::normalize()
   require(io_retry_rate == 0 || positiveRate(io_retry_rate), "io_retry_rate");
   require(positiveRate(active_state_pub_rate), "active_state_pub_rate");
   require(positiveRate(idle_state_pub_rate), "idle_state_pub_rate");
+  require(state_pub_queue > 0, "state_pub_queue");
+  require(command_sub_queue > 0, "command_sub_queue");
   require(positiveRate(status_pub_rate), "status_pub_rate");
   require(positiveRate(status_check_rate), "status_check_rate");
   if (status_pub_rate > status_check_rate) {
