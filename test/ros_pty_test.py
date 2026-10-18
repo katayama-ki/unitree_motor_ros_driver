@@ -19,7 +19,12 @@ import unittest
 import roslib.packages
 import rospy
 import rostest
-from unitree_motor_ros_driver.msg import MotorCommand, MotorState
+from unitree_motor_ros_driver.msg import (
+    MotorCommand,
+    MotorState,
+    MotorStatus,
+    MotorStatusArray,
+)
 
 
 def crc_ccitt(data):
@@ -39,6 +44,7 @@ class RosPtyTest(unittest.TestCase):
         self.lock = threading.Lock()
         self.commands = []
         self.states = []
+        self.statuses = []
         self.error = None
         self.done = threading.Event()
         self.process = None
@@ -46,6 +52,9 @@ class RosPtyTest(unittest.TestCase):
         self.reader = threading.Thread(target=self.emulate, daemon=True)
         self.reader.start()
         self.subscriber = rospy.Subscriber("/pty_driver/state", MotorState, self.state)
+        self.status_subscriber = rospy.Subscriber(
+            "/pty_driver/status", MotorStatusArray, self.status
+        )
         self.publisher = rospy.Publisher(
             "/pty_driver/command", MotorCommand, queue_size=10
         )
@@ -57,6 +66,17 @@ class RosPtyTest(unittest.TestCase):
         environment["LD_PRELOAD"] = os.path.join(
             os.path.dirname(os.path.dirname(executable)), "libpty_serial_shim.so"
         )
+        extra_params = {
+            "test_invalid_status_rate_fails_before_serial_open": [
+                "_status_pub_rate:=0"
+            ],
+            "test_status_changes_bypass_heartbeat": ["_status_pub_rate:=0.1"],
+            "test_status_rate_cap": ["_status_pub_rate:=100", "_status_check_rate:=10"],
+            "test_slow_status_check_keeps_shutdown_responsive": [
+                "_status_pub_rate:=0.1",
+                "_status_check_rate:=0.1",
+            ],
+        }.get(self._testMethodName, [])
         self.process = subprocess.Popen(
             [
                 executable,
@@ -66,10 +86,13 @@ class RosPtyTest(unittest.TestCase):
                 "_motor_id_scan_max:=" + ("14" if self.cancel_scan else "1"),
                 "_command_timeout:=0.2",
                 "_timeout_action:=brake",
+                "_status_pub_rate:=5",
+                "_status_check_rate:=50",
                 "_active_io_rate:=100",
                 "_idle_io_rate:=20",
                 "_idle_state_pub_rate:=20",
-            ],
+            ]
+            + extra_params,
             stdout=self.output,
             stderr=subprocess.STDOUT,
             env=environment,
@@ -86,6 +109,7 @@ class RosPtyTest(unittest.TestCase):
         self.done.set()
         self.reader.join(timeout=2)
         self.subscriber.unregister()
+        self.status_subscriber.unregister()
         self.publisher.unregister()
         os.close(self.master)
         os.close(self.slave)
@@ -94,6 +118,10 @@ class RosPtyTest(unittest.TestCase):
     def state(self, msg):
         with self.lock:
             self.states.append(msg)
+
+    def status(self, msg):
+        with self.lock:
+            self.statuses.append((time.monotonic(), msg))
 
     def emulate(self):
         buffer = b""
@@ -149,6 +177,68 @@ class RosPtyTest(unittest.TestCase):
         self.output.seek(0)
         self.fail("Timed out waiting for driver behavior:\n" + self.output.read())
 
+    def test_invalid_status_rate_fails_before_serial_open(self):
+        self.assertEqual(self.process.wait(timeout=5), 1)
+        with self.lock:
+            self.assertEqual(self.commands, [])
+            self.assertEqual(self.statuses, [])
+        self.output.seek(0)
+        self.assertIn("Invalid parameter: status_pub_rate", self.output.read())
+
+    def test_status_changes_bypass_heartbeat(self):
+        self.wait_for(
+            lambda: self.statuses and self.publisher.get_num_connections() > 0
+        )
+        sent = time.monotonic()
+        self.publisher.publish(MotorCommand(id=0, torque=1))
+        self.wait_for(
+            lambda: any(
+                m.statuses[0].control_state == MotorStatus.ACTIVE
+                for _, m in self.statuses
+            ),
+            seconds=1,
+        )
+        self.wait_for(
+            lambda: any(
+                m.statuses[0].control_state == MotorStatus.CMD_TIMED_OUT
+                for _, m in self.statuses
+            ),
+            seconds=1,
+        )
+        with self.lock:
+            active = next(
+                t
+                for t, m in self.statuses
+                if m.statuses[0].control_state == MotorStatus.ACTIVE
+            )
+            expired = next(
+                t
+                for t, m in self.statuses
+                if m.statuses[0].control_state == MotorStatus.CMD_TIMED_OUT
+            )
+        self.assertLess(active - sent, 0.15)
+        self.assertLess(expired - sent, 0.5)
+
+    def test_status_rate_cap(self):
+        self.wait_for(lambda: len(self.statuses) >= 6)
+        with self.lock:
+            # Use ROS header timestamps to avoid TCP callback delivery jitter.
+            stamps = [m.header.stamp.to_sec() for _, m in self.statuses]
+        average_interval = (stamps[-1] - stamps[0]) / (len(stamps) - 1)
+        self.assertGreater(average_interval, 0.08)
+        self.assertLess(average_interval, 0.15)
+        self.output.seek(0)
+        self.assertIn(
+            "status_pub_rate exceeds status_check_rate; capped", self.output.read()
+        )
+
+    def test_slow_status_check_keeps_shutdown_responsive(self):
+        self.wait_for(lambda: bool(self.statuses))
+        sent = time.monotonic()
+        self.process.send_signal(signal.SIGINT)
+        self.assertEqual(self.process.wait(timeout=2), 0)
+        self.assertLess(time.monotonic() - sent, 1)
+
     def test_shutdown_during_startup_scan(self):
         # ID 0 responds; ID 1 blocks in the SDK receive while startup is pending.
         self.wait_for(lambda: any(motor_id == 1 for motor_id, _, _ in self.commands))
@@ -159,6 +249,7 @@ class RosPtyTest(unittest.TestCase):
             self.assertEqual(self.commands[-1], (0, 0, (0, 0, 0, 0, 0)))
         self.output.seek(0)
         log = self.output.read()
+        self.assertEqual(self.statuses, [])
         self.assertNotIn("Detected motor IDs:", log)
         self.assertNotIn("startup failed", log)
         self.assertIn("Motor id 0 shutdown BRAKE acknowledged", log)
@@ -183,6 +274,26 @@ class RosPtyTest(unittest.TestCase):
         self.assertEqual(fault.mode, MotorState.BRAKE)
         self.assertGreater(normal.header.stamp.to_nsec(), 0)
 
+        self.wait_for(lambda: len(self.statuses) >= 3)
+        with self.lock:
+            snapshots = list(self.statuses)
+        for _, msg in snapshots:
+            self.assertEqual([s.id for s in msg.statuses], [0, 1])
+            self.assertEqual(msg.statuses[0].control_state, MotorStatus.IDLE)
+            self.assertEqual(msg.statuses[1].control_state, MotorStatus.FAULT_LATCHED)
+            self.assertFalse(any(s.io_error for s in msg.statuses))
+            self.assertGreater(msg.header.stamp.to_nsec(), 0)
+        # Unchanged status must be a 5 Hz heartbeat, not the 50 Hz check loop.
+        for (_, before), (_, after) in zip(snapshots, snapshots[1:]):
+            interval = (after.header.stamp - before.header.stamp).to_sec()
+            self.assertGreater(interval, 0.15)
+            self.assertLess(interval, 0.4)
+        # A newly connected subscriber receives the latest latched array.
+        latched = rospy.wait_for_message(
+            "/pty_driver/status", MotorStatusArray, timeout=2
+        )
+        self.assertEqual(latched._connection_header.get("latching"), "1")
+
         command = MotorCommand(
             id=0, position=0.4, velocity=-0.3, torque=5, kp=25, kd=0.6
         )
@@ -201,6 +312,12 @@ class RosPtyTest(unittest.TestCase):
         self.assertEqual(values[0], int(5 / 6.33 * 256))
         self.assertEqual(values[3], int(25 / (6.33**2) / 25.6 * 32768))
         self.assertEqual(values[4], int(0.6 / (6.33**2) / 25.6 * 32768))
+        self.wait_for(
+            lambda: any(
+                m.statuses[0].control_state == MotorStatus.ACTIVE
+                for _, m in self.statuses
+            )
+        )
         self.publisher.publish(MotorCommand(id=1, torque=5))
         self.wait_for(
             lambda: any(s.id == 0 and s.mode == MotorState.FOC for s in self.states)
@@ -213,6 +330,12 @@ class RosPtyTest(unittest.TestCase):
         self.wait_for(
             lambda: any(
                 motor_id == 0 and mode == 0 for motor_id, mode, _ in self.commands[-4:]
+            )
+        )
+        self.wait_for(
+            lambda: any(
+                m.statuses[0].control_state == MotorStatus.CMD_TIMED_OUT
+                for _, m in self.statuses
             )
         )
         with self.lock:

@@ -14,7 +14,7 @@ can be controlled. Startup fails if no motors are detected.
 
 ### Topics
 
-The driver subscribes to `~command` and publishes `~state`.
+The driver subscribes to `~command` and publishes `~state` and `~status`.
 All topics use private names and are resolved under `/unitree_motor_driver` when the
 default node name is used.
 
@@ -22,6 +22,7 @@ default node name is used.
 | --- | --- | --- |
 | `~command` | `MotorCommand` | `id`, `position`, `velocity`, `torque`, `kp`, `kd` |
 | `~state` | `MotorState` | `header`, `id`, `mode`, `position`, `velocity`, `torque`, `temperature`, `error` |
+| `~status` | `MotorStatusArray` | `header`, `statuses[]` (`id`, `control_state`, `io_error`) |
 
 Commands must be published periodically to keep a motor active.
 Otherwise, the configured `command_timeout` applies.
@@ -71,6 +72,20 @@ For GO-M8010-6:
 
 For A1 and B1, `merror` is available, but the meanings of its error codes remain unverified.
 
+#### MotorStatus
+
+`control_state` indicates the driver's control state for each motor:
+
+| State | Description |
+| --- | --- |
+| `IDLE=0` | No valid command received yet |
+| `ACTIVE=1` | Operating with a valid command |
+| `CMD_TIMED_OUT=2` | Command timed out; applying `timeout_action` |
+| `FAULT_LATCHED=3` | Fault detected; BRAKE requested until node restart |
+
+`io_error` indicates whether a communication error has been detected for the motor.
+It is set after two consecutive failed transactions and cleared upon successful communication.
+
 ### Launch
 
 ```sh
@@ -94,6 +109,8 @@ Every private parameter is exposed as an argument in `motor_driver.launch`.
 | `io_retry_rate` | 0 | Retry rate (Hz) after `io_error` is set; zero disables automatic retries|
 | `active_state_pub_rate` | 100 | Target state publication rate (Hz) per ACTIVE motor |
 | `idle_state_pub_rate` | 10 | Target state publication rate (Hz) per motor in any other control state |
+| `status_pub_rate` | 5 | Periodic status publication rate (Hz); status changes trigger immediate publication. Capped at `status_check_rate`. |
+| `status_check_rate` | 50 | Status check rate (Hz) |
 | `velocity_limit` | 0 | Reject commands exceeding this velocity limit (rad/s); B1 requires an explicit positive value. For other motors, zero uses the motor profile limit; values above the profile limit are capped |
 | `torque_limit` | 0 | Reject commands exceeding this torque limit (N·m); zero uses the profile limit; values above the profile limit are capped |
 | `kp_limit` | 200 | Reject commands exceeding this kp limit (N·m/rad) |
@@ -161,7 +178,9 @@ higher-level controllers.
 
 - **Feedback and monitoring:**
   `MotorState` is published only after successful communication, avoiding stale
-  feedback.
+  feedback. `MotorStatusArray` is published periodically and immediately on
+  detected status changes, even during communication failures, allowing
+  higher-level nodes to monitor motor availability.
 
 - **Safety limitations:**
   BRAKE commands may not reach the motor during communication failures.
