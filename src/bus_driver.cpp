@@ -45,6 +45,16 @@ std::vector<uint8_t> BusDriver::ids() const {
   for (const auto& motor : motors_) result.push_back(motor.first);
   return result;
 }
+std::vector<MotorStatus> BusDriver::statuses() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  std::vector<MotorStatus> result;
+  result.reserve(motors_.size());
+  for (const auto& entry : motors_) {
+    const auto& motor = entry.second;
+    result.push_back({motor.id, motor.state, motor.io_error});
+  }
+  return result;
+}
 bool BusDriver::submit(const Command& command) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!running_ || stopping_) return false;

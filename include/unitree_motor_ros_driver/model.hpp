@@ -62,6 +62,12 @@ struct Feedback {
   uint64_t stamp_ns = 0;
 };
 
+struct MotorStatus {
+  uint8_t id;
+  ControlState control_state;
+  bool io_error;
+};
+
 struct Config {
   std::string serial_port;
   MotorType motor_type = MotorType::GO_M8010_6;
@@ -73,6 +79,8 @@ struct Config {
   double io_retry_rate = 0;
   double active_state_pub_rate = 100;
   double idle_state_pub_rate = 10;
+  double status_pub_rate = 5;
+  double status_check_rate = 50;
   TimeoutAction timeout_action = TimeoutAction::ZERO_TORQUE;
   double timeout_damping_kd = 1;
   double velocity_limit = 0;

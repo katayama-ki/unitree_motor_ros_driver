@@ -29,13 +29,13 @@ Startup faults latch only the affected motor; other motors remain available.
 
 ## Topics
 
-Both topics are private: with the default node name, they are
-`/unitree_motor_driver/command` and `/unitree_motor_driver/state`.
+All topics are private, under `/unitree_motor_driver` with the default node name.
 
 | Topic | Message | Meaning |
 | --- | --- | --- |
 | `~command` | `MotorCommand` | `uint8 id`; `float32 position, velocity, torque, kp, kd` |
 | `~state` | `MotorState` | Receive timestamp, ID, normalized mode, position, velocity, torque, temperature, raw motor error |
+| `~status` | `MotorStatusArray` | Publication timestamp and all detected motors' control state and IO error flag |
 
 All physical command and feedback values are **output-side**: rad, rad/s, Nm,
 Nm/rad, and Nm/(rad/s). Commands always describe FOC; the driver manages modes.
@@ -73,6 +73,8 @@ Every private parameter is exposed as an argument in `motor_driver.launch`.
 | `io_retry_rate` | 0 | Transactions/s while io_error; zero disables retries until restart |
 | `active_state_pub_rate` | 100 | Publication target per ACTIVE motor |
 | `idle_state_pub_rate` | 10 | Publication target per other control state |
+| `status_pub_rate` | 5 | Status heartbeat rate (Hz); warns and caps at status_check_rate |
+| `status_check_rate` | 50 | Main-thread status snapshot/check rate (Hz) |
 | `timeout_action` | `zero_torque` | `zero_torque`, `damping`, or `brake` |
 | `timeout_damping_kd` | 1.0 | Output-side damping gain; for damping it must be positive, within kd_limit, and representable by the SDK |
 | `velocity_limit` | 0 | Maximum absolute MotorCommand.velocity in output-side rad/s; B1 requires an explicit value (omitted or zero is fatal). For other motors zero uses the profile limit; values above the profile limit are capped |

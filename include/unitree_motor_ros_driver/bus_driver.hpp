@@ -34,7 +34,11 @@ class BusDriver {
   void stop();
   bool submit(const Command& command);
   bool running() const;
+  // Normalized at construction and immutable thereafter.
+  const Config& config() const { return config_; }
   std::vector<uint8_t> ids() const;
+  // Atomic snapshot of all detected motors, ordered by ID.
+  std::vector<MotorStatus> statuses() const;
 
  private:
   void worker();

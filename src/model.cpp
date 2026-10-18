@@ -83,6 +83,12 @@ std::vector<std::string> Config::normalize() {
   require(io_retry_rate == 0 || positiveRate(io_retry_rate), "io_retry_rate");
   require(positiveRate(active_state_pub_rate), "active_state_pub_rate");
   require(positiveRate(idle_state_pub_rate), "idle_state_pub_rate");
+  require(positiveRate(status_pub_rate), "status_pub_rate");
+  require(positiveRate(status_check_rate), "status_check_rate");
+  if (status_pub_rate > status_check_rate) {
+    warnings.push_back("status_pub_rate exceeds status_check_rate; capped at status_check_rate");
+    status_pub_rate = status_check_rate;
+  }
   require(std::isfinite(io_rate_warn_ratio) && io_rate_warn_ratio > 0 &&
           io_rate_warn_ratio <= 1, "io_rate_warn_ratio (0..1]");
   require(finiteNonnegative(velocity_limit), "velocity_limit");

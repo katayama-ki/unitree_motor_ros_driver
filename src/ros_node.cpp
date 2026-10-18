@@ -1,13 +1,17 @@
 #include "unitree_motor_ros_driver/MotorCommand.h"
 #include "unitree_motor_ros_driver/MotorState.h"
+#include "unitree_motor_ros_driver/MotorStatusArray.h"
 #include "unitree_motor_ros_driver/sdk_transport.hpp"
 
 #include <ros/ros.h>
 #include <XmlRpcValue.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <stdexcept>
 #include <string>
+#include <thread>
+#include <utility>
 
 namespace {
 template <typename T>
@@ -51,6 +55,8 @@ unitree_driver::Config readConfig(const ros::NodeHandle& node) {
   parameter(node, "warn_temperature", c.warn_temperature);
   parameter(node, "stop_temperature", c.stop_temperature);
   parameter(node, "stop_on_motor_error", c.stop_on_motor_error);
+  parameter(node, "status_pub_rate", c.status_pub_rate);
+  parameter(node, "status_check_rate", c.status_check_rate);
   return c;
 }
 void logRos(unitree_driver::Severity severity, const std::string& text) {
@@ -95,6 +101,8 @@ int main(int argc, char** argv) {
         publisher.publish(msg);
       }, logRos);
     driver.start([] { return ros::isShuttingDown() || !ros::ok(); });
+    auto status_publisher = node.advertise<unitree_motor_ros_driver::MotorStatusArray>(
+      "status", 1, true);
     auto subscriber = node.subscribe<unitree_motor_ros_driver::MotorCommand>(
       "command", 5, [&driver](const unitree_motor_ros_driver::MotorCommand::ConstPtr& msg) {
         unitree_driver::Command command;
@@ -108,8 +116,45 @@ int main(int argc, char** argv) {
       });
     ros::AsyncSpinner spinner(1);
     spinner.start();
-    // Wall time keeps shutdown responsive when /use_sim_time is paused.
-    while (ros::ok() && driver.running()) ros::WallDuration(0.05).sleep();
+    // Use steady time so paused ROS time does not stall status or shutdown checks.
+    // Schedule shutdown checks every 50 ms independently of the status check rate.
+    const auto check_interval = unitree_driver::period(driver.config().status_check_rate);
+    const auto pub_interval = unitree_driver::period(driver.config().status_pub_rate);
+    const auto shutdown_interval = std::chrono::milliseconds(50);
+    auto next_check = unitree_driver::Clock::now();
+    auto next_shutdown_check = next_check;
+    auto next_publish = next_check;
+    unitree_motor_ros_driver::MotorStatusArray last_status;
+    bool has_status = false;
+    while (true) {
+      const auto now = unitree_driver::Clock::now();
+      if (now >= next_shutdown_check) {
+        if (!ros::ok() || !driver.running()) break;
+        next_shutdown_check = unitree_driver::advanceDeadline(
+          next_shutdown_check, shutdown_interval, now);
+      }
+      if (now >= next_check) {
+        unitree_motor_ros_driver::MotorStatusArray msg;
+        for (const auto& status : driver.statuses()) {
+          unitree_motor_ros_driver::MotorStatus motor;
+          motor.id = status.id;
+          motor.control_state = static_cast<uint8_t>(status.control_state);
+          motor.io_error = status.io_error;
+          msg.statuses.push_back(motor);
+        }
+        const bool changed = !has_status || msg.statuses != last_status.statuses;
+        if (changed || now >= next_publish) {
+          msg.header.stamp = ros::Time::now();
+          status_publisher.publish(msg);
+          last_status = std::move(msg);
+          has_status = true;
+          next_publish = changed ? now + pub_interval :
+            unitree_driver::advanceDeadline(next_publish, pub_interval, now);
+        }
+        next_check = unitree_driver::advanceDeadline(next_check, check_interval, now);
+      }
+      std::this_thread::sleep_until(std::min(next_check, next_shutdown_check));
+    }
     const bool unexpected_stop = ros::ok();
     subscriber.shutdown();
     spinner.stop();
