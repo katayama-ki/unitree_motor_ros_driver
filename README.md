@@ -73,6 +73,8 @@ Every private parameter is exposed as an argument in `motor_driver.launch`.
 | `io_retry_rate` | 0 | Transactions/s while io_error; zero disables retries until restart |
 | `active_state_pub_rate` | 100 | Publication target per ACTIVE motor |
 | `idle_state_pub_rate` | 10 | Publication target per other control state |
+| `state_pub_queue` | 5 | Positive integer queue size for the ~state publisher |
+| `command_sub_queue` | 5 | Positive integer queue size for the ~command subscriber |
 | `status_pub_rate` | 5 | Status heartbeat rate (Hz); warns and caps at status_check_rate |
 | `status_check_rate` | 50 | Main-thread status snapshot/check rate (Hz) |
 | `timeout_action` | `zero_torque` | `zero_torque`, `damping`, or `brake` |

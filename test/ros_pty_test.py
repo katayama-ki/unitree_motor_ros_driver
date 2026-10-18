@@ -52,6 +52,8 @@ class RosPtyTest(unittest.TestCase):
         environment["LD_PRELOAD"] = os.path.join(os.path.dirname(os.path.dirname(executable)),
                                                  "libpty_serial_shim.so")
         extra_params = {
+            "test_topics_conversion_fault_watchdog_and_shutdown": [
+                "_state_pub_queue:=2", "_command_sub_queue:=3"],
             "test_invalid_status_rate_fails_before_serial_open": ["_status_pub_rate:=0"],
             "test_status_changes_bypass_heartbeat": ["_status_pub_rate:=0.1"],
             "test_status_rate_cap": ["_status_pub_rate:=100", "_status_check_rate:=10"],
