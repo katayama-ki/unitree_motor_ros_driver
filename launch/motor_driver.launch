@@ -4,6 +4,8 @@
   <arg name="node_name" default="unitree_motor_driver"/>
   <arg name="motor_id_scan_max" default="14"/>
   <arg name="command_timeout" default="0.5"/>
+  <arg name="timeout_action" default="zero_torque"/>
+  <arg name="timeout_damping_kd" default="1.0"/>
   <arg name="active_io_rate" default="100"/>
   <arg name="idle_io_rate" default="10"/>
   <arg name="io_rate_warn_ratio" default="0.9"/>
@@ -14,8 +16,6 @@
   <arg name="command_sub_queue" default="5"/>
   <arg name="status_pub_rate" default="5"/>
   <arg name="status_check_rate" default="50"/>
-  <arg name="timeout_action" default="zero_torque"/>
-  <arg name="timeout_damping_kd" default="1.0"/>
   <arg name="velocity_limit" default="0"/>
   <arg name="torque_limit" default="0"/>
   <arg name="kp_limit" default="200"/>
@@ -30,6 +30,8 @@
     <param name="motor_type" value="$(arg motor_type)" type="str"/>
     <param name="motor_id_scan_max" value="$(arg motor_id_scan_max)" type="int"/>
     <param name="command_timeout" value="$(arg command_timeout)" type="double"/>
+    <param name="timeout_action" value="$(arg timeout_action)" type="str"/>
+    <param name="timeout_damping_kd" value="$(arg timeout_damping_kd)" type="double"/>
     <param name="active_io_rate" value="$(arg active_io_rate)" type="double"/>
     <param name="idle_io_rate" value="$(arg idle_io_rate)" type="double"/>
     <param name="io_rate_warn_ratio" value="$(arg io_rate_warn_ratio)" type="double"/>
@@ -40,8 +42,6 @@
     <param name="command_sub_queue" value="$(arg command_sub_queue)" type="int"/>
     <param name="status_pub_rate" value="$(arg status_pub_rate)" type="double"/>
     <param name="status_check_rate" value="$(arg status_check_rate)" type="double"/>
-    <param name="timeout_action" value="$(arg timeout_action)" type="str"/>
-    <param name="timeout_damping_kd" value="$(arg timeout_damping_kd)" type="double"/>
     <param name="velocity_limit" value="$(arg velocity_limit)" type="double"/>
     <param name="torque_limit" value="$(arg torque_limit)" type="double"/>
     <param name="kp_limit" value="$(arg kp_limit)" type="double"/>
