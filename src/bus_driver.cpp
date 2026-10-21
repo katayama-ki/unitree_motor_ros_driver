@@ -128,7 +128,7 @@ void BusDriver::inspectFeedback(MotorContext& motor, const Feedback& f, TimePoin
   }
 }
 void BusDriver::scan(Transport& transport) {
-  log_(Severity::INFO, "Scanning motor IDs 0–" + std::to_string(config_.motor_id_scan_max) +
+  log_(Severity::INFO, "Scanning motor IDs 0-" + std::to_string(config_.motor_id_scan_max) +
        " on " + config_.serial_port);
   const auto check_stopped = [this] {
     {
