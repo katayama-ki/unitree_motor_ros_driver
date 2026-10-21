@@ -256,7 +256,7 @@ class RosPtyTest(unittest.TestCase):
         self.assertEqual(self.statuses, [])
         self.assertNotIn("Detected motor IDs:", log)
         self.assertNotIn("startup failed", log)
-        self.assertIn("Motor id 0 shutdown BRAKE acknowledged", log)
+        self.assertIn("Motor 0: shutdown BRAKE acknowledged", log)
         self.assertIn("Serial bus closed", log)
 
     def test_topics_conversion_fault_watchdog_and_shutdown(self):
@@ -361,8 +361,8 @@ class RosPtyTest(unittest.TestCase):
                 self.assertEqual(values, (0, 0, 0, 0, 0))
         self.output.seek(0)
         log = self.output.read()
-        self.assertIn("Motor id 1 reported error code 2 (over-current)", log)
-        self.assertIn("command watchdog expired", log)
+        self.assertIn("Motor 1: reported error code 2 (over-current)", log)
+        self.assertIn("Motor 0: Command timeout; applying brake", log)
         self.assertIn("shutdown BRAKE acknowledged", log)
 
 

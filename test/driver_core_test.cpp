@@ -461,7 +461,8 @@ TEST(BusDriver, ScanRetriesAndRejectsUnknownIdWithoutFeedingWatchdog)
   ASSERT_TRUE(h.bus->wait([&] { return h.bus->hasCommand(0, ud::Mode::FOC); }));
   cmd.torque = std::numeric_limits<float>::quiet_NaN();
   EXPECT_FALSE(h.driver->submit(cmd));
-  ASSERT_TRUE(h.bus->wait([&] { return h.bus->hasLog("watchdog expired"); }));
+  ASSERT_TRUE(
+    h.bus->wait([&] { return h.bus->hasLog("Motor 0: Command timeout; applying brake"); }));
   EXPECT_EQ(ud::ControlState::CMD_TIMED_OUT, h.driver->statuses()[0].control_state);
   h.driver->stop();
   std::lock_guard<std::mutex> lock(h.bus->mutex);
@@ -471,7 +472,7 @@ TEST(BusDriver, ScanRetriesAndRejectsUnknownIdWithoutFeedingWatchdog)
   EXPECT_EQ(0, h.bus->transactions[0].command.values.id);
   EXPECT_EQ(0, h.bus->transactions[1].command.values.id);
   EXPECT_TRUE(h.bus->hasLog("mismatched ID"));
-  EXPECT_FALSE(h.bus->hasLog("sendRecv failed"));
+  EXPECT_FALSE(h.bus->hasLog("Communication failed"));
   for (size_t i = h.bus->transactions.size() - 2; i < h.bus->transactions.size(); ++i) {
     const auto & wire = h.bus->transactions[i].command;
     EXPECT_EQ(ud::Mode::BRAKE, wire.mode);
@@ -490,7 +491,7 @@ TEST(BusDriver, NoDetectedMotorIsStartupFailure)
   EXPECT_TRUE(h.driver->ids().empty());
   std::lock_guard<std::mutex> lock(h.bus->mutex);
   EXPECT_EQ(4u, h.bus->transactions.size());
-  EXPECT_FALSE(h.bus->hasLog("sendRecv failed"));
+  EXPECT_FALSE(h.bus->hasLog("Communication failed"));
   EXPECT_TRUE(h.bus->published.empty());
   EXPECT_TRUE(h.bus->closed);
 }
@@ -566,8 +567,10 @@ TEST(BusDriver, ShutdownBrakeAttemptsAndFailureLogs)
       EXPECT_EQ(0, record.command.values.kd);
     }
     const bool failed = outcomes.size() == 3;
-    EXPECT_FALSE(h.bus->hasLog("sendRecv failed"));
-    EXPECT_EQ(failed, h.bus->hasLog("Motor id 0 shutdown BRAKE failed after two attempts"));
+    EXPECT_FALSE(h.bus->hasLog("Communication failed"));
+    EXPECT_EQ(
+      failed,
+      h.bus->hasLog("Motor 0: Could not confirm shutdown brake command after two attempts"));
     EXPECT_EQ(!failed, h.bus->hasLog("shutdown BRAKE acknowledged"));
     EXPECT_TRUE(h.bus->closed);
   }
@@ -601,7 +604,8 @@ TEST(BusDriver, IoFailureDisablesRetryAndNeverPublishesMismatchedFeedback)
     std::lock_guard<std::mutex> lock(h.bus->mutex);
     h.bus->outcomes[0] = {-2, -1};
   }
-  ASSERT_TRUE(h.bus->wait([&] { return h.bus->hasLog("io_error set"); }));
+  ASSERT_TRUE(h.bus->wait(
+    [&] { return h.bus->hasLog("Communication failed twice; automatic retries disabled"); }));
   EXPECT_TRUE(h.driver->statuses()[0].io_error);
   size_t count;
   {
@@ -637,16 +641,17 @@ TEST(BusDriver, RetryUsesFreshCommandAndOneSuccessRecovers)
     std::lock_guard<std::mutex> lock(h.bus->mutex);
     h.bus->outcomes[0] = {-1, -2};
   }
-  ASSERT_TRUE(h.bus->wait([&] { return h.bus->hasLog("io_error set"); }));
+  ASSERT_TRUE(
+    h.bus->wait([&] { return h.bus->hasLog("Communication failed twice; retrying at 10 Hz"); }));
   EXPECT_TRUE(h.driver->statuses()[0].io_error);
   ud::Command cmd;
   cmd.torque = 3;
   ASSERT_TRUE(h.driver->submit(cmd));
-  ASSERT_TRUE(h.bus->wait([&] { return h.bus->hasLog("IO recovered"); }));
+  ASSERT_TRUE(h.bus->wait([&] { return h.bus->hasLog("Communication restored"); }));
   EXPECT_FALSE(h.driver->statuses()[0].io_error);
   std::lock_guard<std::mutex> lock(h.bus->mutex);
   EXPECT_TRUE(h.bus->hasCommand(0, ud::Mode::FOC));
-  EXPECT_TRUE(h.bus->hasLog("sendRecv failed"));
+  EXPECT_TRUE(h.bus->hasLog("Communication failed"));
 }
 TEST(BusDriver, CommandSubmissionDoesNotBlockBehindTransactionAndSafetyOverridesIt)
 {
@@ -673,7 +678,8 @@ TEST(BusDriver, CommandSubmissionDoesNotBlockBehindTransactionAndSafetyOverrides
   }
   h.bus->cv.notify_all();
   EXPECT_TRUE(submitted.get());
-  ASSERT_TRUE(h.bus->wait([&] { return h.bus->hasLog("stop temperature exceeded"); }));
+  ASSERT_TRUE(h.bus->wait(
+    [&] { return h.bus->hasLog("Overtemperature (81°C); brake requested until driver restart"); }));
   {
     std::lock_guard<std::mutex> lock(h.bus->mutex);
     h.bus->feedback[0].temperature = 20;
@@ -700,7 +706,8 @@ TEST(BusDriver, DisabledErrorStopStillLogsErrorEdges)
     std::lock_guard<std::mutex> lock(h.bus->mutex);
     h.bus->feedback[0].error = 0;
   }
-  ASSERT_TRUE(h.bus->wait([&] { return h.bus->hasLog("returned to normal"); }));
+  ASSERT_TRUE(
+    h.bus->wait([&] { return h.bus->hasLog("Motor 0: Reported error code cleared (0)"); }));
   std::lock_guard<std::mutex> lock(h.bus->mutex);
   EXPECT_FALSE(h.bus->hasLog("FAULT_LATCHED"));
   EXPECT_TRUE(h.bus->hasLog("encoder fault"));
@@ -721,7 +728,7 @@ TEST(BusDriver, RateMeasurementCountsAttemptsIncludingAlternatingFailures)
   std::lock_guard<std::mutex> lock(h.bus->mutex);
   // A successful-reply counter would report ~50 Hz and falsely warn here.
   EXPECT_FALSE(h.bus->hasLog("IO attempt rate"));
-  EXPECT_FALSE(h.bus->hasLog("io_error set"));
+  EXPECT_FALSE(h.bus->hasLog("Communication failed twice"));
 }
 TEST(BusDriver, WarningThrottleIsIndependentForEachMotorAndLogType)
 {
@@ -741,9 +748,9 @@ TEST(BusDriver, WarningThrottleIsIndependentForEachMotorAndLogType)
   for (uint8_t id : {0, 1}) {
     for (const auto & text :
          {"reported UNKNOWN mode", "feedback velocity exceeds limit",
-          "feedback torque exceeds limit", "temperature 71"})
+          "feedback torque exceeds limit", "Temperature 71°C exceeds warning threshold (70°C)"})
     {
-      const std::string prefix = "Motor id " + std::to_string(id) + " " + text;
+      const std::string prefix = "Motor " + std::to_string(id) + ": " + text;
       EXPECT_EQ(
         1,
         std::count_if(h.bus->logs.begin(), h.bus->logs.end(), [&prefix](const std::string & log) {
