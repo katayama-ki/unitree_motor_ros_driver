@@ -71,7 +71,7 @@ bool BusDriver::submit(const Command& command) {
   return true;
 }
 void BusDriver::logMotor(Severity severity, uint8_t id, const std::string& text) {
-  log_(severity, "Motor id " + std::to_string(id) + " " + text);
+  log_(severity, "Motor " + std::to_string(id) + ": " + text);
 }
 void BusDriver::throttled(Severity severity, uint8_t id, const std::string& kind,
                           const std::string& text, TimePoint now) {
@@ -98,7 +98,7 @@ bool BusDriver::transact(Transport& transport, const WireCommand& command, Feedb
   if (!success && (warn_on_send_recv_failure || !failure.empty())) {
     std::lock_guard<std::mutex> lock(mutex_);
     throttled(Severity::WARN, command.values.id, "io_failure",
-              failure.empty() ? "sendRecv failed" : failure, Clock::now());
+              failure.empty() ? "Communication failed" : failure, Clock::now());
   }
   return success;
 }
@@ -111,9 +111,10 @@ void BusDriver::inspectFeedback(MotorContext& motor, const Feedback& f, TimePoin
     throttled(Severity::WARN, motor.id, "torque_limit", "feedback torque exceeds limit", now);
   if (f.temperature > config_.warn_temperature)
     throttled(Severity::WARN, motor.id, "temperature",
-              "temperature " + std::to_string(f.temperature) + " exceeds warning threshold", now);
+              "Temperature " + std::to_string(f.temperature) + "°C exceeds warning threshold (" +
+              std::to_string(config_.warn_temperature) + "°C)", now);
   if (f.error != motor.previous_error) {
-    if (f.error == 0) logMotor(Severity::INFO, motor.id, "error code returned to normal (0)");
+    if (f.error == 0) logMotor(Severity::INFO, motor.id, "Reported error code cleared (0)");
     else logMotor(Severity::ERROR, motor.id, "reported error code " + std::to_string(f.error) +
                   " (" + motorErrorText(config_.motor_type, f.error) + ")");
     motor.previous_error = f.error;
@@ -121,11 +122,14 @@ void BusDriver::inspectFeedback(MotorContext& motor, const Feedback& f, TimePoin
   const bool hot = f.temperature > config_.stop_temperature;
   if ((hot || (config_.stop_on_motor_error && f.error != 0)) && motor.latchFault(now)) {
     logMotor(Severity::ERROR, motor.id,
-      hot ? "stop temperature exceeded; FAULT_LATCHED, sending BRAKE until restart"
+      hot ? "Overtemperature (" + std::to_string(f.temperature) +
+            "°C); brake requested until driver restart"
           : "motor error; FAULT_LATCHED, sending BRAKE until restart");
   }
 }
 void BusDriver::scan(Transport& transport) {
+  log_(Severity::INFO, "Scanning motor IDs 0–" + std::to_string(config_.motor_id_scan_max) +
+       " on " + config_.serial_port);
   const auto check_stopped = [this] {
     {
       std::lock_guard<std::mutex> lock(mutex_);
@@ -186,6 +190,13 @@ void BusDriver::checkRate(MotorContext& motor, TimePoint now) {
   motor.attempts = 0;
 }
 void BusDriver::loop(Transport& transport) {
+  std::string timeout_message = "Command timeout; applying ";
+  switch (config_.timeout_action) {
+    case TimeoutAction::ZERO_TORQUE: timeout_message += "zero_torque"; break;
+    case TimeoutAction::DAMPING: timeout_message += "damping"; break;
+    case TimeoutAction::BRAKE: timeout_message += "brake"; break;
+    default: throw std::invalid_argument("Unknown timeout action");
+  }
   std::unique_lock<std::mutex> lock(mutex_);
   while (!stopping_) {
     const auto now = Clock::now();
@@ -194,7 +205,7 @@ void BusDriver::loop(Transport& transport) {
     for (auto it = motors_.begin(); it != motors_.end(); ++it) {
       auto& motor = it->second;
       if (motor.expire(config_, now))
-        logMotor(Severity::WARN, motor.id, "command watchdog expired");
+        logMotor(Severity::WARN, motor.id, timeout_message);
       checkRate(motor, now);
       if (motor.state == ControlState::ACTIVE) {
         const auto expiry = motor.command_received +
@@ -225,15 +236,20 @@ void BusDriver::loop(Transport& transport) {
     lock.lock();
     const bool rate_changed = motor.recordIo(success, completed);
     if (rate_changed) {
-      logMotor(motor.io_error ? Severity::ERROR : Severity::INFO, motor.id,
-        motor.io_error ? "two consecutive IO failures; io_error set" : "IO recovered; io_error cleared");
+      std::ostringstream text;
+      if (motor.io_error) {
+        text << "Communication failed twice; ";
+        if (config_.io_retry_rate > 0) text << "retrying at " << config_.io_retry_rate << " Hz";
+        else text << "automatic retries disabled";
+      } else text << "Communication restored";
+      logMotor(motor.io_error ? Severity::ERROR : Severity::INFO, motor.id, text.str());
       if (motor.io_error && config_.io_retry_rate > 0)
         motor.next_due = completed + period(config_.io_retry_rate);
     }
     Feedback output;
     bool publish = false;
     if (motor.expire(config_, completed))
-      logMotor(Severity::WARN, motor.id, "command watchdog expired");
+      logMotor(Severity::WARN, motor.id, timeout_message);
     if (success) {
       output = toOutput(config_.motor_type, rotor);
       inspectFeedback(motor, output, completed);
@@ -261,7 +277,7 @@ void BusDriver::shutdown(Transport& transport) {
       inspectFeedback(motors_.at(id), toOutput(config_.motor_type, rotor), Clock::now());
       logMotor(Severity::INFO, id, "shutdown BRAKE acknowledged");
     } else {
-      logMotor(Severity::ERROR, id, "shutdown BRAKE failed after two attempts");
+      logMotor(Severity::ERROR, id, "Could not confirm shutdown brake command after two attempts");
     }
   }
 }
