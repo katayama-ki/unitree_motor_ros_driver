@@ -461,8 +461,13 @@ TEST(BusDriver, ScanRetriesAndRejectsUnknownIdWithoutFeedingWatchdog)
   ASSERT_TRUE(
     h.bus->wait([&] { return h.bus->hasLog("Motor 0: Command timeout; applying brake"); }));
   EXPECT_EQ(ud::ControlState::CMD_TIMED_OUT, h.driver->statuses()[0].control_state);
+  cmd.torque = 2;
+  ASSERT_TRUE(h.driver->submit(cmd));
+  ASSERT_TRUE(h.driver->submit(cmd));
   h.driver->stop();
   std::lock_guard<std::mutex> lock(h.bus->mutex);
+  EXPECT_EQ(
+    1, std::count(h.bus->logs.begin(), h.bus->logs.end(), "Motor 0: Command reception resumed"));
   EXPECT_EQ(1u, h.bus->owners.size());
   EXPECT_TRUE(h.bus->closed);
   ASSERT_GE(h.bus->transactions.size(), 3u);
@@ -724,7 +729,7 @@ TEST(BusDriver, RateMeasurementCountsAttemptsIncludingAlternatingFailures)
   ASSERT_TRUE(h.bus->wait([&] { return h.bus->transactions.size() >= 125; }));
   std::lock_guard<std::mutex> lock(h.bus->mutex);
   // A successful-reply counter would report ~50 Hz and falsely warn here.
-  EXPECT_FALSE(h.bus->hasLog("IO attempt rate"));
+  EXPECT_FALSE(h.bus->hasLog("I/O attempt rate"));
   EXPECT_FALSE(h.bus->hasLog("Communication failed twice"));
 }
 TEST(BusDriver, WarningThrottleIsIndependentForEachMotorAndLogType)

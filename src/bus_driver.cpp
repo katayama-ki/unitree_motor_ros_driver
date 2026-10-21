@@ -97,7 +97,11 @@ bool BusDriver::submit(const Command & command)
     throttled(Severity::WARN, command.id, "invalid_command", "ignored command: " + reason, now);
     return false;
   }
-  found->second.acceptCommand(command, now);
+  auto & motor = found->second;
+  const bool timed_out = motor.state == ControlState::CMD_TIMED_OUT;
+  if (motor.acceptCommand(command, now) && timed_out) {
+    logMotor(Severity::INFO, motor.id, "Command reception resumed");
+  }
   cv_.notify_one();
   return true;
 }
@@ -248,8 +252,14 @@ void BusDriver::checkRate(MotorContext & motor, TimePoint now)
     const double target = motor.ioRate(config_);
     if (actual < config_.io_rate_warn_ratio * target) {
       std::ostringstream text;
-      text << "IO attempt rate " << actual << " Hz is below target " << target << " Hz";
+      text << "I/O attempt rate " << actual << " Hz is below target " << target << " Hz";
       throttled(Severity::WARN, motor.id, "io_rate", text.str(), now);
+      motor.io_rate_warned = true;
+    } else if (motor.io_rate_warned) {
+      std::ostringstream text;
+      text << "I/O attempt rate restored: " << actual << " Hz (target " << target << " Hz)";
+      logMotor(Severity::INFO, motor.id, text.str());
+      motor.io_rate_warned = false;
     }
   }
   motor.rate_window = now;
