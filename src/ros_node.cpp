@@ -127,9 +127,11 @@ int main(int argc, char ** argv)
       logRos);
     publisher = node.advertise<unitree_motor_ros_driver::MotorState>(
       "state", driver.config().state_pub_queue);
+    ROS_INFO_STREAM("Publishing motor state on " << publisher.getTopic());
     driver.start([] { return ros::isShuttingDown() || !ros::ok(); });
     auto status_publisher =
       node.advertise<unitree_motor_ros_driver::MotorStatusArray>("status", 1, true);
+    ROS_INFO_STREAM("Publishing motor status on " << status_publisher.getTopic());
     auto subscriber = node.subscribe<unitree_motor_ros_driver::MotorCommand>(
       "command", driver.config().command_sub_queue,
       [&driver](const unitree_motor_ros_driver::MotorCommand::ConstPtr & msg) {
@@ -142,6 +144,7 @@ int main(int argc, char ** argv)
         command.kd = msg->kd;
         driver.submit(command);
       });
+    ROS_INFO_STREAM("Subscribing to motor commands on " << subscriber.getTopic());
     ros::AsyncSpinner spinner(1);
     spinner.start();
     // Use steady time so paused ROS time does not stall status or shutdown checks.
