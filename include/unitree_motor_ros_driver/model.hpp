@@ -119,6 +119,7 @@ struct MotorContext {
   int previous_error = 0;
   TimePoint rate_window{};
   unsigned attempts = 0;
+  bool io_rate_warned = false;
 
   bool acceptCommand(const Command& command, TimePoint now);
   bool expire(const Config& config, TimePoint now);
