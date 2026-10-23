@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <iostream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -128,6 +129,8 @@ int main(int argc, char ** argv)
     publisher = node.advertise<unitree_motor_ros_driver::MotorState>(
       "state", driver.config().state_pub_queue);
     ROS_INFO_STREAM("Publishing motor state on " << publisher.getTopic());
+    // Suppress the SDK's direct console output; diagnostics are logged through ROS.
+    std::cout.setstate(std::ios_base::failbit);
     driver.start([] { return ros::isShuttingDown() || !ros::ok(); });
     auto status_publisher =
       node.advertise<unitree_motor_ros_driver::MotorStatusArray>("status", 1, true);

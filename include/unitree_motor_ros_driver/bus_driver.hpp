@@ -58,9 +58,9 @@ private:
   void scan(Transport & transport);
   void loop(Transport & transport);
   void shutdown(Transport & transport);
+  // Ordinary no-reply failures leave failure empty; exceptions and ID mismatches set it.
   bool transact(
-    Transport & transport, const WireCommand & command, Feedback & feedback,
-    bool warn_on_send_recv_failure = true);
+    Transport & transport, const WireCommand & command, Feedback & feedback, std::string & failure);
   void inspectFeedback(MotorContext & motor, const Feedback & feedback, TimePoint now);
   void logMotor(Severity severity, uint8_t id, const std::string & text);
   void throttled(

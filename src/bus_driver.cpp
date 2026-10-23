@@ -120,11 +120,10 @@ void BusDriver::throttled(
   }
 }
 bool BusDriver::transact(
-  Transport & transport, const WireCommand & command, Feedback & feedback,
-  bool warn_on_send_recv_failure)
+  Transport & transport, const WireCommand & command, Feedback & feedback, std::string & failure)
 {
   bool success = false;
-  std::string failure;
+  failure.clear();
   try {
     success = transport.transact(command, feedback);
     if (success && feedback.id != command.values.id) {
@@ -133,12 +132,6 @@ bool BusDriver::transact(
     }
   } catch (const std::exception & error) {
     failure = std::string("transaction exception: ") + error.what();
-  }
-  if (!success && (warn_on_send_recv_failure || !failure.empty())) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    throttled(
-      Severity::WARN, command.values.id, "io_failure",
-      failure.empty() ? "Communication failed" : failure, Clock::now());
   }
   return success;
 }
@@ -198,18 +191,26 @@ void BusDriver::scan(Transport & transport)
     }
   };
   for (const uint8_t id : scanIds(config_.motor_type, config_.motor_id_scan_max)) {
-    check_stopped();
     Command zero;
     zero.id = id;
     const auto brake = toWire(config_.motor_type, zero, Mode::BRAKE);
     Feedback rotor;
     // A failed sendRecv is expected for an absent ID during discovery. Keep
     // mismatched replies and transaction exceptions visible even during the scan.
-    if (!transact(transport, brake, rotor, false)) {
+    std::string failure;
+    bool success = false;
+    for (int attempt = 0; attempt < 2; ++attempt) {
       check_stopped();
-      if (!transact(transport, brake, rotor, false)) {
-        continue;
+      success = transact(transport, brake, rotor, failure);
+      if (!failure.empty()) {
+        logMotor(Severity::WARN, id, failure);
       }
+      if (success) {
+        break;
+      }
+    }
+    if (!success) {
+      continue;
     }
     const auto feedback = toOutput(config_.motor_type, rotor);
     const auto now = Clock::now();
@@ -329,9 +330,13 @@ void BusDriver::loop(Transport & transport)
     ++motor.attempts;  // Count attempts, including failed/mismatched transactions.
     lock.unlock();
     Feedback rotor;
-    const bool success = transact(transport, command, rotor);
+    std::string failure;
+    const bool success = transact(transport, command, rotor, failure);
     const auto completed = Clock::now();
     lock.lock();
+    if (!success && motor.consecutive_io_failures == 0) {
+      logMotor(Severity::WARN, motor.id, failure.empty() ? "Communication failed" : failure);
+    }
     const bool rate_changed = motor.recordIo(success, completed);
     if (rate_changed) {
       std::ostringstream text;
@@ -379,8 +384,9 @@ void BusDriver::shutdown(Transport & transport)
     zero.id = id;
     Feedback rotor;
     const auto brake = toWire(config_.motor_type, zero, Mode::BRAKE);
+    std::string failure;
     const bool ok =
-      transact(transport, brake, rotor, false) || transact(transport, brake, rotor, false);
+      transact(transport, brake, rotor, failure) || transact(transport, brake, rotor, failure);
     std::lock_guard<std::mutex> lock(mutex_);
     if (ok) {
       inspectFeedback(motors_.at(id), toOutput(config_.motor_type, rotor), Clock::now());

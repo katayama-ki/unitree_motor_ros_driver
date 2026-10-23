@@ -256,6 +256,8 @@ class RosPtyTest(unittest.TestCase):
         self.assertEqual(self.statuses, [])
         self.assertNotIn("Detected motor IDs:", log)
         self.assertNotIn("startup failed", log)
+        self.assertNotIn("does not reply", log)
+        self.assertNotIn("wait time out", log)
         self.assertIn("Motor 0: shutdown BRAKE acknowledged", log)
         self.assertIn("Serial bus closed", log)
 
