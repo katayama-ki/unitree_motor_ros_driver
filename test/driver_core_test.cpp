@@ -276,7 +276,7 @@ struct FakeBus {
   std::mutex mutex;
   std::condition_variable cv;
   std::map<uint8_t, ud::Feedback> feedback;
-  std::map<uint8_t, std::deque<int>> outcomes;  // 0=success, -1=failure, -2=ID mismatch
+  std::map<uint8_t, std::deque<int>> outcomes;  // 0=success, -1=failure, -2=ID mismatch, -3=exception
   std::vector<Record> transactions;
   std::vector<ud::Feedback> published;
   std::vector<std::string> logs;
@@ -329,6 +329,7 @@ class FakeTransport : public ud::Transport {
     auto& outcomes = bus_->outcomes[id];
     if (!outcomes.empty()) { outcome = outcomes.front(); outcomes.pop_front(); }
     if (outcome == -1) return false;
+    if (outcome == -3) throw std::runtime_error("test communication error");
     feedback = bus_->feedback[id];
     feedback.id = outcome == -2 ? 14 : id;
     feedback.stamp_ns = ++bus_->stamp;
@@ -476,7 +477,7 @@ TEST(BusDriver, StartupCancellationSkipsRetryAndRemainingIdsButBrakesDetectedMot
 }
 TEST(BusDriver, ShutdownBrakeAttemptsAndFailureLogs) {
   for (const auto outcomes : {std::deque<int>{0}, std::deque<int>{-1, 0},
-                             std::deque<int>{-1, -1, 0}}) {
+                             std::deque<int>{-1, -1, 0}, std::deque<int>{-2, -3, 0}}) {
     auto c = config();
     c.motor_id_scan_max = 0;
     c.idle_io_rate = c.idle_state_pub_rate = 0.01;
@@ -504,6 +505,8 @@ TEST(BusDriver, ShutdownBrakeAttemptsAndFailureLogs) {
     }
     const bool failed = outcomes.size() == 3;
     EXPECT_FALSE(h.bus->hasLog("Communication failed"));
+    EXPECT_FALSE(h.bus->hasLog("mismatched ID"));
+    EXPECT_FALSE(h.bus->hasLog("transaction exception"));
     EXPECT_EQ(failed, h.bus->hasLog("Motor 0: Could not confirm shutdown brake command after two attempts"));
     EXPECT_EQ(!failed, h.bus->hasLog("shutdown BRAKE acknowledged"));
     EXPECT_TRUE(h.bus->closed);
@@ -564,7 +567,7 @@ TEST(BusDriver, RetryUsesFreshCommandAndOneSuccessRecovers) {
   h.driver->start();
   {
     std::lock_guard<std::mutex> lock(h.bus->mutex);
-    h.bus->outcomes[0] = {-1, -2};
+    h.bus->outcomes[0] = {-1, -2, -2, -3, 0};
   }
   ASSERT_TRUE(h.bus->wait([&] { return h.bus->hasLog("Communication failed twice; retrying at 10 Hz"); }));
   EXPECT_TRUE(h.driver->statuses()[0].io_error);
@@ -573,9 +576,23 @@ TEST(BusDriver, RetryUsesFreshCommandAndOneSuccessRecovers) {
   ASSERT_TRUE(h.driver->submit(cmd));
   ASSERT_TRUE(h.bus->wait([&] { return h.bus->hasLog("Communication restored"); }));
   EXPECT_FALSE(h.driver->statuses()[0].io_error);
+  {
+    std::lock_guard<std::mutex> lock(h.bus->mutex);
+    EXPECT_FALSE(h.bus->hasLog("mismatched ID"));
+    EXPECT_FALSE(h.bus->hasLog("transaction exception"));
+    // A new failure immediately after recovery must log its detail without throttling.
+    h.bus->outcomes[0] = {-3, -2, 0};
+  }
+  ASSERT_TRUE(h.bus->wait([&] {
+    return std::count(h.bus->logs.begin(), h.bus->logs.end(), "Motor 0: Communication restored") == 2;
+  }));
   std::lock_guard<std::mutex> lock(h.bus->mutex);
   EXPECT_TRUE(h.bus->hasCommand(0, ud::Mode::FOC));
-  EXPECT_TRUE(h.bus->hasLog("Communication failed"));
+  EXPECT_EQ(1, std::count(h.bus->logs.begin(), h.bus->logs.end(), "Motor 0: Communication failed"));
+  EXPECT_EQ(2, std::count(h.bus->logs.begin(), h.bus->logs.end(),
+                         "Motor 0: Communication failed twice; retrying at 10 Hz"));
+  EXPECT_TRUE(h.bus->hasLog("transaction exception: test communication error"));
+  EXPECT_FALSE(h.bus->hasLog("mismatched ID"));
 }
 TEST(BusDriver, CommandSubmissionDoesNotBlockBehindTransactionAndSafetyOverridesIt) {
   auto c = config();
