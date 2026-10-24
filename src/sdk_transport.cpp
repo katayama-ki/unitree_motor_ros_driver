@@ -3,6 +3,12 @@
 
 #include "unitree_motor_ros_driver/sdk_transport.hpp"
 
+#include <fcntl.h>
+#include <sys/file.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
+
+#include <cerrno>
 #include <cmath>
 #include <cstring>
 #include <memory>
@@ -43,14 +49,62 @@ namespace
       throw std::invalid_argument("Cannot send UNKNOWN mode");
   }
 }
+// The SDK's fd is private, so exclusivity is applied through a second fd on the
+// same tty. flock is kept alongside TIOCEXCL because root bypasses TIOCEXCL.
+class PortLock
+{
+public:
+  explicit PortLock(const std::string & port)
+  : fd_(::open(port.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC))
+  {
+    if (fd_ < 0) {
+      fail("Cannot open serial port " + port);
+    }
+    if (::flock(fd_, LOCK_EX | LOCK_NB) != 0) {
+      const int error = errno;
+      ::close(fd_);
+      if (error == EWOULDBLOCK) {
+        throw std::runtime_error("Serial port " + port + " is already in use");
+      }
+      errno = error;
+      fail("Cannot lock serial port " + port);
+    }
+  }
+  ~PortLock()
+  {
+    // The flag survives while any other fd keeps the tty open.
+    if (exclusive_) {
+      ::ioctl(fd_, TIOCNXCL);
+    }
+    ::close(fd_);
+  }
+  PortLock(const PortLock &) = delete;
+  PortLock & operator=(const PortLock &) = delete;
+  void makeExclusive(const std::string & port)
+  {
+    if (::ioctl(fd_, TIOCEXCL) != 0) {
+      fail("Cannot set exclusive mode on serial port " + port);
+    }
+    exclusive_ = true;
+  }
+
+private:
+  [[noreturn]] static void fail(const std::string & what)
+  {
+    throw std::runtime_error(what + ": " + std::strerror(errno));
+  }
+  int fd_;
+  bool exclusive_ = false;
+};
 class SdkTransport : public Transport
 {
 public:
   // Keep SerialPort's constructor defaults: the bundled SDK's typed sendRecv
   // overload reconfigures baud rate and receive length according to the motor type.
   SdkTransport(const std::string & port, MotorType type, std::function<uint64_t()> stamp)
-  : type_(sdkType(type)), stamp_(std::move(stamp)), serial_(port)
+  : type_(sdkType(type)), stamp_(std::move(stamp)), lock_(port), serial_(port)
   {
+    lock_.makeExclusive(port);  // Only after serial_ opens: TIOCEXCL would reject the SDK too.
     if (std::abs(queryGearRatio(type_) - profile(type).sdk_gear_ratio) > 1e-5) {
       throw std::runtime_error("Bundled SDK gear ratio does not match motor profile");
     }
@@ -97,6 +151,7 @@ public:
 private:
   ::MotorType type_;
   std::function<uint64_t()> stamp_;
+  PortLock lock_;  // Before serial_ so the lock is held for the SDK fd's whole lifetime.
   SerialPort serial_;
 };
 }  // namespace
