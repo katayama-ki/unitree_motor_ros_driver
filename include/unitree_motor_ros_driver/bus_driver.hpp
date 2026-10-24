@@ -1,6 +1,8 @@
-#pragma once
+// SPDX-FileCopyrightText: Copyright katayama-ki
+// SPDX-License-Identifier: MIT
 
-#include "unitree_motor_ros_driver/model.hpp"
+#ifndef UNITREE_MOTOR_ROS_DRIVER__BUS_DRIVER_HPP_
+#define UNITREE_MOTOR_ROS_DRIVER__BUS_DRIVER_HPP_
 
 #include <condition_variable>
 #include <exception>
@@ -8,23 +10,31 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <thread>
+#include <utility>
+#include <vector>
 
-namespace unitree_driver {
+#include "unitree_motor_ros_driver/model.hpp"
 
-class Transport {
- public:
+namespace unitree_driver
+{
+
+class Transport
+{
+public:
   virtual ~Transport() = default;
-  virtual bool transact(const WireCommand& command, Feedback& rotor_feedback) = 0;
+  virtual bool transact(const WireCommand & command, Feedback & rotor_feedback) = 0;
 };
 
 // Callbacks must not re-enter BusDriver. Logging may run with the context mutex held.
 // The factory, all transactions, and transport destruction run on one bus thread.
-class BusDriver {
- public:
+class BusDriver
+{
+public:
   using Factory = std::function<std::unique_ptr<Transport>()>;
-  using Publish = std::function<void(const Feedback&)>;
-  using Log = std::function<void(Severity, const std::string&)>;
+  using Publish = std::function<void(const Feedback &)>;
+  using Log = std::function<void(Severity, const std::string &)>;
 
   BusDriver(Config config, Factory factory, Publish publish, Log log);
   ~BusDriver();
@@ -32,27 +42,31 @@ class BusDriver {
   // should_stop is called on the bus thread between scan transactions.
   void start(std::function<bool()> should_stop = {});
   void stop();
-  bool submit(const Command& command);
+  bool submit(const Command & command);
   bool running() const;
   // Normalized at construction and immutable thereafter.
-  const Config& config() const { return config_; }
+  const Config & config() const
+  {
+    return config_;
+  }
   std::vector<uint8_t> ids() const;
   // Atomic snapshot of all detected motors, ordered by ID.
   std::vector<MotorStatus> statuses() const;
 
- private:
+private:
   void worker();
-  void scan(Transport& transport);
-  void loop(Transport& transport);
-  void shutdown(Transport& transport);
+  void scan(Transport & transport);
+  void loop(Transport & transport);
+  void shutdown(Transport & transport);
   // Ordinary no-reply failures leave failure empty; exceptions and ID mismatches set it.
-  bool transact(Transport& transport, const WireCommand& command, Feedback& feedback,
-                std::string& failure);
-  void inspectFeedback(MotorContext& motor, const Feedback& feedback, TimePoint now);
-  void logMotor(Severity severity, uint8_t id, const std::string& text);
-  void throttled(Severity severity, uint8_t id, const std::string& kind,
-                 const std::string& text, TimePoint now);
-  void checkRate(MotorContext& motor, TimePoint now);
+  bool transact(
+    Transport & transport, const WireCommand & command, Feedback & feedback, std::string & failure);
+  void inspectFeedback(MotorContext & motor, const Feedback & feedback, TimePoint now);
+  void logMotor(Severity severity, uint8_t id, const std::string & text);
+  void throttled(
+    Severity severity, uint8_t id, const std::string & kind, const std::string & text,
+    TimePoint now);
+  void checkRate(MotorContext & motor, TimePoint now);
 
   Config config_;
   Factory factory_;
@@ -72,3 +86,5 @@ class BusDriver {
 };
 
 }  // namespace unitree_driver
+
+#endif  // UNITREE_MOTOR_ROS_DRIVER__BUS_DRIVER_HPP_

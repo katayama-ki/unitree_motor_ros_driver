@@ -1,21 +1,39 @@
+// SPDX-FileCopyrightText: Copyright katayama-ki
+// SPDX-License-Identifier: MIT
+
 #include "unitree_motor_ros_driver/bus_driver.hpp"
 
 #include <cmath>
+#include <memory>
 #include <sstream>
 #include <stdexcept>
+#include <string>
 #include <utility>
+#include <vector>
 
-namespace unitree_driver {
+namespace unitree_driver
+{
 BusDriver::BusDriver(Config config, Factory factory, Publish publish, Log log)
-  : config_(std::move(config)), factory_(std::move(factory)),
-    publish_(std::move(publish)), log_(std::move(log)) {
-  for (const auto& warning : config_.normalize()) log_(Severity::WARN, warning);
+: config_(std::move(config)),
+  factory_(std::move(factory)),
+  publish_(std::move(publish)),
+  log_(std::move(log))
+{
+  for (const auto & warning : config_.normalize()) {
+    log_(Severity::WARN, warning);
+  }
 }
-BusDriver::~BusDriver() { stop(); }
+BusDriver::~BusDriver()
+{
+  stop();
+}
 
-void BusDriver::start(std::function<bool()> should_stop) {
+void BusDriver::start(std::function<bool()> should_stop)
+{
   std::unique_lock<std::mutex> lock(mutex_);
-  if (started_) throw std::logic_error("BusDriver can only be started once");
+  if (started_) {
+    throw std::logic_error("BusDriver can only be started once");
+  }
   started_ = true;
   startup_should_stop_ = std::move(should_stop);
   thread_ = std::thread(&BusDriver::worker, this);
@@ -27,57 +45,73 @@ void BusDriver::start(std::function<bool()> should_stop) {
     std::rethrow_exception(error);
   }
 }
-void BusDriver::stop() {
+void BusDriver::stop()
+{
   {
     std::lock_guard<std::mutex> lock(mutex_);
     stopping_ = true;
   }
   cv_.notify_all();
-  if (thread_.joinable()) thread_.join();
+  if (thread_.joinable()) {
+    thread_.join();
+  }
 }
-bool BusDriver::running() const {
+bool BusDriver::running() const
+{
   std::lock_guard<std::mutex> lock(mutex_);
   return running_ && !stopping_;
 }
-std::vector<uint8_t> BusDriver::ids() const {
+std::vector<uint8_t> BusDriver::ids() const
+{
   std::lock_guard<std::mutex> lock(mutex_);
   std::vector<uint8_t> result;
-  for (const auto& motor : motors_) result.push_back(motor.first);
+  for (const auto & motor : motors_) {
+    result.push_back(motor.first);
+  }
   return result;
 }
-std::vector<MotorStatus> BusDriver::statuses() const {
+std::vector<MotorStatus> BusDriver::statuses() const
+{
   std::lock_guard<std::mutex> lock(mutex_);
   std::vector<MotorStatus> result;
   result.reserve(motors_.size());
-  for (const auto& entry : motors_) {
-    const auto& motor = entry.second;
+  for (const auto & entry : motors_) {
+    const auto & motor = entry.second;
     result.push_back({motor.id, motor.state, motor.io_error});
   }
   return result;
 }
-bool BusDriver::submit(const Command& command) {
+bool BusDriver::submit(const Command & command)
+{
   std::lock_guard<std::mutex> lock(mutex_);
-  if (!running_ || stopping_) return false;
+  if (!running_ || stopping_) {
+    return false;
+  }
   const auto now = Clock::now();
   std::string reason;
   auto found = motors_.find(command.id);
   if (!validateCommand(config_, command, reason) || found == motors_.end()) {
-    if (reason.empty()) reason = "ID was not detected during startup scan";
+    if (reason.empty()) {
+      reason = "ID was not detected during startup scan";
+    }
     throttled(Severity::WARN, command.id, "invalid_command", "ignored command: " + reason, now);
     return false;
   }
-  auto& motor = found->second;
+  auto & motor = found->second;
   const bool timed_out = motor.state == ControlState::CMD_TIMED_OUT;
-  if (motor.acceptCommand(command, now) && timed_out)
+  if (motor.acceptCommand(command, now) && timed_out) {
     logMotor(Severity::INFO, motor.id, "Command reception resumed");
+  }
   cv_.notify_one();
   return true;
 }
-void BusDriver::logMotor(Severity severity, uint8_t id, const std::string& text) {
+void BusDriver::logMotor(Severity severity, uint8_t id, const std::string & text)
+{
   log_(severity, "Motor " + std::to_string(id) + ": " + text);
 }
-void BusDriver::throttled(Severity severity, uint8_t id, const std::string& kind,
-                          const std::string& text, TimePoint now) {
+void BusDriver::throttled(
+  Severity severity, uint8_t id, const std::string & kind, const std::string & text, TimePoint now)
+{
   const auto key = std::make_pair(id, kind);
   const auto found = throttle_.find(key);
   if (found == throttle_.end() || now - found->second >= std::chrono::seconds(2)) {
@@ -85,8 +119,9 @@ void BusDriver::throttled(Severity severity, uint8_t id, const std::string& kind
     logMotor(severity, id, text);
   }
 }
-bool BusDriver::transact(Transport& transport, const WireCommand& command, Feedback& feedback,
-                         std::string& failure) {
+bool BusDriver::transact(
+  Transport & transport, const WireCommand & command, Feedback & feedback, std::string & failure)
+{
   bool success = false;
   failure.clear();
   try {
@@ -95,46 +130,65 @@ bool BusDriver::transact(Transport& transport, const WireCommand& command, Feedb
       success = false;
       failure = "received mismatched ID " + std::to_string(feedback.id);
     }
-  } catch (const std::exception& error) {
+  } catch (const std::exception & error) {
     failure = std::string("transaction exception: ") + error.what();
   }
   return success;
 }
-void BusDriver::inspectFeedback(MotorContext& motor, const Feedback& f, TimePoint now) {
-  if (f.mode == Mode::UNKNOWN)
+void BusDriver::inspectFeedback(MotorContext & motor, const Feedback & f, TimePoint now)
+{
+  if (f.mode == Mode::UNKNOWN) {
     throttled(Severity::WARN, motor.id, "unknown_mode", "reported UNKNOWN mode", now);
-  if (std::abs(f.velocity) > config_.velocity_limit)
+  }
+  if (std::abs(f.velocity) > config_.velocity_limit) {
     throttled(Severity::WARN, motor.id, "velocity_limit", "feedback velocity exceeds limit", now);
-  if (std::abs(f.torque) > config_.torque_limit)
+  }
+  if (std::abs(f.torque) > config_.torque_limit) {
     throttled(Severity::WARN, motor.id, "torque_limit", "feedback torque exceeds limit", now);
-  if (f.temperature > config_.warn_temperature)
-    throttled(Severity::WARN, motor.id, "temperature",
-              "Temperature " + std::to_string(f.temperature) + "°C exceeds warning threshold (" +
-              std::to_string(config_.warn_temperature) + "°C)", now);
+  }
+  if (f.temperature > config_.warn_temperature) {
+    throttled(
+      Severity::WARN, motor.id, "temperature",
+      "Temperature " + std::to_string(f.temperature) + "°C exceeds warning threshold (" +
+        std::to_string(config_.warn_temperature) + "°C)",
+      now);
+  }
   if (f.error != motor.previous_error) {
-    if (f.error == 0) logMotor(Severity::INFO, motor.id, "Reported error code cleared (0)");
-    else logMotor(Severity::ERROR, motor.id, "reported error code " + std::to_string(f.error) +
-                  " (" + motorErrorText(config_.motor_type, f.error) + ")");
+    if (f.error == 0) {
+      logMotor(Severity::INFO, motor.id, "Reported error code cleared (0)");
+    } else {
+      logMotor(
+        Severity::ERROR, motor.id,
+        "reported error code " + std::to_string(f.error) + " (" +
+          motorErrorText(config_.motor_type, f.error) + ")");
+    }
     motor.previous_error = f.error;
   }
   const bool hot = f.temperature > config_.stop_temperature;
   if ((hot || (config_.stop_on_motor_error && f.error != 0)) && motor.latchFault(now)) {
-    logMotor(Severity::ERROR, motor.id,
+    logMotor(
+      Severity::ERROR, motor.id,
       hot ? "Overtemperature (" + std::to_string(f.temperature) +
-            "°C); brake requested until driver restart"
+          "°C); brake requested until driver restart"
           : "motor error; FAULT_LATCHED, sending BRAKE until restart");
   }
 }
-void BusDriver::scan(Transport& transport) {
-  log_(Severity::INFO, "Scanning motor IDs 0-" + std::to_string(config_.motor_id_scan_max) +
-       " on " + config_.serial_port);
+void BusDriver::scan(Transport & transport)
+{
+  log_(
+    Severity::INFO,
+    "Scanning motor IDs 0-" + std::to_string(config_.motor_id_scan_max) + " on " +
+      config_.serial_port);
   const auto check_stopped = [this] {
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      if (stopping_) throw std::runtime_error("Stopped during startup scan");
+      if (stopping_) {
+        throw std::runtime_error("Stopped during startup scan");
+      }
     }
-    if (startup_should_stop_ && startup_should_stop_())
+    if (startup_should_stop_ && startup_should_stop_()) {
       throw std::runtime_error("Stopped during startup scan");
+    }
   };
   for (const uint8_t id : scanIds(config_.motor_type, config_.motor_id_scan_max)) {
     Command zero;
@@ -148,15 +202,21 @@ void BusDriver::scan(Transport& transport) {
     for (int attempt = 0; attempt < 2; ++attempt) {
       check_stopped();
       success = transact(transport, brake, rotor, failure);
-      if (!failure.empty()) logMotor(Severity::WARN, id, failure);
-      if (success) break;
+      if (!failure.empty()) {
+        logMotor(Severity::WARN, id, failure);
+      }
+      if (success) {
+        break;
+      }
     }
-    if (!success) continue;
+    if (!success) {
+      continue;
+    }
     const auto feedback = toOutput(config_.motor_type, rotor);
     const auto now = Clock::now();
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      auto& motor = motors_[id];
+      auto & motor = motors_[id];
       motor.id = id;
       motor.latest.id = id;
       motor.makeDue(now);
@@ -167,18 +227,27 @@ void BusDriver::scan(Transport& transport) {
   }
   check_stopped();
   std::lock_guard<std::mutex> lock(mutex_);
-  if (motors_.empty()) throw std::runtime_error("No motors detected on serial bus");
+  if (motors_.empty()) {
+    throw std::runtime_error("No motors detected on serial bus");
+  }
   std::ostringstream text;
   text << "Detected motor IDs:";
-  for (const auto& motor : motors_) text << " " << static_cast<unsigned>(motor.first);
+  for (const auto & motor : motors_) {
+    text << " " << static_cast<unsigned>(motor.first);
+  }
   log_(Severity::INFO, text.str());
   // Start regular scheduling after the entire scan, without accounting scan delays
   // as missed runtime IO. Preserve faults detected during scanning.
-  for (auto& motor : motors_) motor.second.makeDue(Clock::now());
+  for (auto & motor : motors_) {
+    motor.second.makeDue(Clock::now());
+  }
 }
-void BusDriver::checkRate(MotorContext& motor, TimePoint now) {
+void BusDriver::checkRate(MotorContext & motor, TimePoint now)
+{
   const double elapsed = std::chrono::duration<double>(now - motor.rate_window).count();
-  if (elapsed < 1.0) return;
+  if (elapsed < 1.0) {
+    return;
+  }
   if (!motor.io_error) {
     const double actual = motor.attempts / elapsed;
     const double target = motor.ioRate(config_);
@@ -197,13 +266,21 @@ void BusDriver::checkRate(MotorContext& motor, TimePoint now) {
   motor.rate_window = now;
   motor.attempts = 0;
 }
-void BusDriver::loop(Transport& transport) {
+void BusDriver::loop(Transport & transport)
+{
   std::string timeout_message = "Command timeout; applying ";
   switch (config_.timeout_action) {
-    case TimeoutAction::ZERO_TORQUE: timeout_message += "zero_torque"; break;
-    case TimeoutAction::DAMPING: timeout_message += "damping"; break;
-    case TimeoutAction::BRAKE: timeout_message += "brake"; break;
-    default: throw std::invalid_argument("Unknown timeout action");
+    case TimeoutAction::ZERO_TORQUE:
+      timeout_message += "zero_torque";
+      break;
+    case TimeoutAction::DAMPING:
+      timeout_message += "damping";
+      break;
+    case TimeoutAction::BRAKE:
+      timeout_message += "brake";
+      break;
+    default:
+      throw std::invalid_argument("Unknown timeout action");
   }
   std::unique_lock<std::mutex> lock(mutex_);
   while (!stopping_) {
@@ -211,28 +288,44 @@ void BusDriver::loop(Transport& transport) {
     auto selected = motors_.end();
     TimePoint wake = TimePoint::max();
     for (auto it = motors_.begin(); it != motors_.end(); ++it) {
-      auto& motor = it->second;
-      if (motor.expire(config_, now))
+      auto & motor = it->second;
+      if (motor.expire(config_, now)) {
         logMotor(Severity::WARN, motor.id, timeout_message);
+      }
       checkRate(motor, now);
       if (motor.state == ControlState::ACTIVE) {
         const auto expiry = motor.command_received +
-          std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(config_.command_timeout));
-        if (expiry < wake) wake = expiry;
+          std::chrono::duration_cast<Clock::duration>(
+                              std::chrono::duration<double>(config_.command_timeout));
+        if (expiry < wake) {
+          wake = expiry;
+        }
       }
-      if (motor.ioRate(config_) == 0) continue;
-      if (motor.next_due < wake) wake = motor.next_due;
-      if (!motor.io_error && motor.rate_window + std::chrono::seconds(1) < wake)
+      if (motor.ioRate(config_) == 0) {
+        continue;
+      }
+      if (motor.next_due < wake) {
+        wake = motor.next_due;
+      }
+      if (!motor.io_error && motor.rate_window + std::chrono::seconds(1) < wake) {
         wake = motor.rate_window + std::chrono::seconds(1);
-      if (motor.next_due <= now &&
-          (selected == motors_.end() || motor.next_due < selected->second.next_due)) selected = it;
+      }
+      if (
+        motor.next_due <= now &&
+        (selected == motors_.end() || motor.next_due < selected->second.next_due))
+      {
+        selected = it;
+      }
     }
     if (selected == motors_.end()) {
-      if (wake == TimePoint::max()) cv_.wait(lock);
-      else cv_.wait_until(lock, wake);
+      if (wake == TimePoint::max()) {
+        cv_.wait(lock);
+      } else {
+        cv_.wait_until(lock, wake);
+      }
       continue;
     }
-    auto& motor = selected->second;
+    auto & motor = selected->second;
     const auto command = motor.wireCommand(config_);
     const auto deadline = motor.next_due;
     const auto revision = motor.schedule_revision;
@@ -243,24 +336,32 @@ void BusDriver::loop(Transport& transport) {
     const bool success = transact(transport, command, rotor, failure);
     const auto completed = Clock::now();
     lock.lock();
-    if (!success && motor.consecutive_io_failures == 0)
+    if (!success && motor.consecutive_io_failures == 0) {
       logMotor(Severity::WARN, motor.id, failure.empty() ? "Communication failed" : failure);
+    }
     const bool rate_changed = motor.recordIo(success, completed);
     if (rate_changed) {
       std::ostringstream text;
       if (motor.io_error) {
         text << "Communication failed twice; ";
-        if (config_.io_retry_rate > 0) text << "retrying at " << config_.io_retry_rate << " Hz";
-        else text << "automatic retries disabled";
-      } else text << "Communication restored";
+        if (config_.io_retry_rate > 0) {
+          text << "retrying at " << config_.io_retry_rate << " Hz";
+        } else {
+          text << "automatic retries disabled";
+        }
+      } else {
+        text << "Communication restored";
+      }
       logMotor(motor.io_error ? Severity::ERROR : Severity::INFO, motor.id, text.str());
-      if (motor.io_error && config_.io_retry_rate > 0)
+      if (motor.io_error && config_.io_retry_rate > 0) {
         motor.next_due = completed + period(config_.io_retry_rate);
+      }
     }
     Feedback output;
     bool publish = false;
-    if (motor.expire(config_, completed))
+    if (motor.expire(config_, completed)) {
       logMotor(Severity::WARN, motor.id, timeout_message);
+    }
     if (success) {
       output = toOutput(config_.motor_type, rotor);
       inspectFeedback(motor, output, completed);
@@ -268,22 +369,26 @@ void BusDriver::loop(Transport& transport) {
     }
     // A command/fault transition during sendRecv must retain its immediate deadline.
     // A regular late transaction drops missed cycles and moves to a future deadline.
-    if (motor.schedule_revision == revision && motor.ioRate(config_) > 0)
+    if (motor.schedule_revision == revision && motor.ioRate(config_) > 0) {
       motor.next_due = advanceDeadline(deadline, period(motor.ioRate(config_)), completed);
+    }
     lock.unlock();
-    if (publish) publish_(output);
+    if (publish) {
+      publish_(output);
+    }
     lock.lock();
   }
 }
-void BusDriver::shutdown(Transport& transport) {
+void BusDriver::shutdown(Transport & transport)
+{
   for (const auto id : ids()) {
     Command zero;
     zero.id = id;
     Feedback rotor;
     const auto brake = toWire(config_.motor_type, zero, Mode::BRAKE);
     std::string failure;
-    const bool ok = transact(transport, brake, rotor, failure) ||
-                    transact(transport, brake, rotor, failure);
+    const bool ok =
+      transact(transport, brake, rotor, failure) || transact(transport, brake, rotor, failure);
     std::lock_guard<std::mutex> lock(mutex_);
     if (ok) {
       inspectFeedback(motors_.at(id), toOutput(config_.motor_type, rotor), Clock::now());
@@ -293,11 +398,14 @@ void BusDriver::shutdown(Transport& transport) {
     }
   }
 }
-void BusDriver::worker() {
+void BusDriver::worker()
+{
   std::unique_ptr<Transport> transport;
   try {
     transport = factory_();
-    if (!transport) throw std::runtime_error("Transport factory returned null");
+    if (!transport) {
+      throw std::runtime_error("Transport factory returned null");
+    }
     scan(*transport);
     {
       std::lock_guard<std::mutex> lock(mutex_);
@@ -308,15 +416,19 @@ void BusDriver::worker() {
     loop(*transport);
   } catch (...) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!ready_) startup_error_ = std::current_exception();
-    else log_(Severity::ERROR, "Communication thread terminated unexpectedly");
+    if (!ready_) {
+      startup_error_ = std::current_exception();
+    } else {
+      log_(Severity::ERROR, "Communication thread terminated unexpectedly");
+    }
     ready_ = true;
     running_ = false;
     cv_.notify_all();
   }
   if (transport) {
-    try { shutdown(*transport); }
-    catch (const std::exception& error) {
+    try {
+      shutdown(*transport);
+    } catch (const std::exception & error) {
       log_(Severity::ERROR, std::string("Shutdown error: ") + error.what());
     }
     transport.reset();  // SerialPort destructor closes the port on the bus thread.

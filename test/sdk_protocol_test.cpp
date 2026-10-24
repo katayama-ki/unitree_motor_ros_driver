@@ -1,15 +1,22 @@
-#include "unitree_motor_ros_driver/model.hpp"
-#include <unitreeMotor/unitreeMotor.h>
+// SPDX-FileCopyrightText: Copyright katayama-ki
+// SPDX-License-Identifier: MIT
+
 #include <gtest/gtest.h>
 
 #include <cmath>
 #include <cstring>
+#include <string>
+
+#include "unitreeMotor/unitreeMotor.h"
+#include "unitree_motor_ros_driver/model.hpp"
 
 namespace ud = unitree_driver;
-TEST(SdkProtocol, GearRatiosAndGainEncodingMatchBundledBinary) {
+TEST(SdkProtocol, GearRatiosAndGainEncodingMatchBundledBinary)
+{
   for (const auto type : {ud::MotorType::A1, ud::MotorType::B1, ud::MotorType::GO_M8010_6}) {
-    const auto sdk_type = type == ud::MotorType::A1 ? ::MotorType::A1 :
-      type == ud::MotorType::B1 ? ::MotorType::B1 : ::MotorType::GO_M8010_6;
+    const auto sdk_type = type == ud::MotorType::A1 ? ::MotorType::A1
+      : type == ud::MotorType::B1                   ? ::MotorType::B1
+                                                    : ::MotorType::GO_M8010_6;
     EXPECT_NEAR(ud::profile(type).sdk_gear_ratio, queryGearRatio(sdk_type), 1e-5);
     ud::Command output;
     output.position = -1;
@@ -19,7 +26,7 @@ TEST(SdkProtocol, GearRatiosAndGainEncodingMatchBundledBinary) {
     output.kd = 0.6;
     const auto wire = ud::toWire(type, output);
     MotorCmd cmd;
-    std::memset(static_cast<void*>(&cmd), 0, sizeof(cmd));
+    std::memset(static_cast<void *>(&cmd), 0, sizeof(cmd));
     cmd.motorType = sdk_type;
     cmd.mode = queryMotorMode(sdk_type, MotorMode::FOC);
     cmd.q = wire.values.position;
@@ -41,12 +48,14 @@ TEST(SdkProtocol, GearRatiosAndGainEncodingMatchBundledBinary) {
       std::memcpy(&packet, cmd.get_motor_send_data(), sizeof(packet));
       EXPECT_EQ(queryMotorMode(sdk_type, MotorMode::FOC), packet.Mdata.mode);
       EXPECT_EQ(static_cast<int16_t>(wire.values.kp * 2048.f), packet.Mdata.K_P);
-      EXPECT_EQ(static_cast<int16_t>(wire.values.kd * (type == ud::MotorType::A1 ? 1024.f : 512.f)),
-                packet.Mdata.K_W);
+      EXPECT_EQ(
+        static_cast<int16_t>(wire.values.kd * (type == ud::MotorType::A1 ? 1024.f : 512.f)),
+        packet.Mdata.K_W);
     }
   }
 }
-TEST(SdkProtocol, GoSdkSaturationIsRejectedByValidation) {
+TEST(SdkProtocol, GoSdkSaturationIsRejectedByValidation)
+{
   ud::Config config;
   config.serial_port = "fake";
   config.kp_limit = 2000;

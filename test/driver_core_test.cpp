@@ -1,4 +1,5 @@
-#include "unitree_motor_ros_driver/bus_driver.hpp"
+// SPDX-FileCopyrightText: Copyright katayama-ki
+// SPDX-License-Identifier: MIT
 
 #include <gtest/gtest.h>
 
@@ -7,22 +8,33 @@
 #include <deque>
 #include <future>
 #include <limits>
+#include <map>
+#include <memory>
 #include <set>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "unitree_motor_ros_driver/bus_driver.hpp"
 
 namespace ud = unitree_driver;
-namespace {
-ud::Config config(ud::MotorType type = ud::MotorType::GO_M8010_6) {
+namespace
+{
+ud::Config config(ud::MotorType type = ud::MotorType::GO_M8010_6)
+{
   ud::Config c;
   c.serial_port = "fake";
   c.motor_type = type;
   c.motor_id_scan_max = 1;
   return c;
 }
-ud::TimePoint at(double seconds) {
-  return ud::TimePoint(std::chrono::duration_cast<ud::Clock::duration>(
-    std::chrono::duration<double>(seconds)));
+ud::TimePoint at(double seconds)
+{
+  return ud::TimePoint(
+    std::chrono::duration_cast<ud::Clock::duration>(std::chrono::duration<double>(seconds)));
 }
-TEST(Configuration, HardwareLimitsAndScanBroadcastExclusion) {
+TEST(Configuration, HardwareLimitsAndScanBroadcastExclusion)
+{
   for (const auto type : {ud::MotorType::A1, ud::MotorType::B1, ud::MotorType::GO_M8010_6}) {
     auto c = config(type);
     c.velocity_limit = 1000;
@@ -43,21 +55,25 @@ TEST(Configuration, HardwareLimitsAndScanBroadcastExclusion) {
   EXPECT_EQ(1u, c.normalize().size());
   EXPECT_EQ(14, c.motor_id_scan_max);
 }
-TEST(Configuration, InvalidParametersFailBeforeOpeningBus) {
+TEST(Configuration, InvalidParametersFailBeforeOpeningBus)
+{
   const double nan = std::numeric_limits<double>::quiet_NaN();
   const double inf = std::numeric_limits<double>::infinity();
-  for (double ud::Config::* field : {&ud::Config::velocity_limit, &ud::Config::torque_limit,
-      &ud::Config::kp_limit, &ud::Config::kd_limit, &ud::Config::timeout_damping_kd}) {
+  for (double ud::Config::* field :
+       {&ud::Config::velocity_limit, &ud::Config::torque_limit, &ud::Config::kp_limit,
+        &ud::Config::kd_limit, &ud::Config::timeout_damping_kd})
+  {
     for (const double value : {nan, inf, -1.0}) {
       auto c = config();
       c.*field = value;
       EXPECT_THROW(c.normalize(), std::invalid_argument);
     }
   }
-  for (double ud::Config::* field : {&ud::Config::command_timeout, &ud::Config::active_io_rate,
-      &ud::Config::idle_io_rate, &ud::Config::active_state_pub_rate,
-      &ud::Config::idle_state_pub_rate, &ud::Config::status_pub_rate,
-      &ud::Config::status_check_rate}) {
+  for (double ud::Config::* field :
+       {&ud::Config::command_timeout, &ud::Config::active_io_rate, &ud::Config::idle_io_rate,
+        &ud::Config::active_state_pub_rate, &ud::Config::idle_state_pub_rate,
+        &ud::Config::status_pub_rate, &ud::Config::status_check_rate})
+  {
     for (const double value : {nan, inf, -1.0, 0.0, 1e-300}) {
       auto c = config();
       c.*field = value;
@@ -83,14 +99,19 @@ TEST(Configuration, InvalidParametersFailBeforeOpeningBus) {
   EXPECT_THROW(ud::parseMotorType("Go"), std::invalid_argument);
   EXPECT_THROW(ud::parseTimeoutAction("coast"), std::invalid_argument);
 }
-TEST(Configuration, B1RequiresPositiveVelocityLimitBeforeOpeningBus) {
+TEST(Configuration, B1RequiresPositiveVelocityLimitBeforeOpeningBus)
+{
   auto c = config(ud::MotorType::B1);
   EXPECT_THROW(c.normalize(), std::invalid_argument);
   bool opened = false;
-  EXPECT_THROW((ud::BusDriver(c, [&opened]() -> std::unique_ptr<ud::Transport> {
-    opened = true;
-    return nullptr;
-  }, [](const ud::Feedback&) {}, [](ud::Severity, const std::string&) {})),
+  EXPECT_THROW(
+    (ud::BusDriver(
+      c,
+      [&opened]() -> std::unique_ptr<ud::Transport> {
+        opened = true;
+        return nullptr;
+      },
+      [](const ud::Feedback &) {}, [](ud::Severity, const std::string &) {})),
     std::invalid_argument);
   EXPECT_FALSE(opened);
   c.velocity_limit = 10;
@@ -102,7 +123,8 @@ TEST(Configuration, B1RequiresPositiveVelocityLimitBeforeOpeningBus) {
     EXPECT_DOUBLE_EQ(ud::profile(type).velocity_limit, other.velocity_limit);
   }
 }
-TEST(CommandValidation, B1OutputVelocityCeilingFitsRotorProtocol) {
+TEST(CommandValidation, B1OutputVelocityCeilingFitsRotorProtocol)
+{
   auto c = config(ud::MotorType::B1);
   c.velocity_limit = 29.5;
   c.normalize();
@@ -121,7 +143,8 @@ TEST(CommandValidation, B1OutputVelocityCeilingFitsRotorProtocol) {
   EXPECT_FALSE(ud::validateCommand(c, cmd, reason));
   EXPECT_NE(std::string::npos, reason.find("protocol"));
 }
-TEST(Conversion, OutputRotorRoundTripAndSpecialGains) {
+TEST(Conversion, OutputRotorRoundTripAndSpecialGains)
+{
   for (const auto type : {ud::MotorType::A1, ud::MotorType::B1, ud::MotorType::GO_M8010_6}) {
     ud::Command cmd;
     cmd.id = 1;
@@ -132,10 +155,10 @@ TEST(Conversion, OutputRotorRoundTripAndSpecialGains) {
     cmd.kd = 0.6;
     const auto wire = ud::toWire(type, cmd);
     const double r = ud::profile(type).sdk_gear_ratio;
-    EXPECT_NEAR(cmd.kp / (r*r) / (type == ud::MotorType::GO_M8010_6 ? 1 : 26.07),
-                wire.values.kp, 1e-6);
-    EXPECT_NEAR(cmd.kd / (r*r) * (type == ud::MotorType::GO_M8010_6 ? 1 : 100),
-                wire.values.kd, 1e-6);
+    EXPECT_NEAR(
+      cmd.kp / (r * r) / (type == ud::MotorType::GO_M8010_6 ? 1 : 26.07), wire.values.kp, 1e-6);
+    EXPECT_NEAR(
+      cmd.kd / (r * r) * (type == ud::MotorType::GO_M8010_6 ? 1 : 100), wire.values.kd, 1e-6);
     ud::Feedback feedback;
     feedback.position = wire.values.position;
     feedback.velocity = wire.values.velocity;
@@ -153,16 +176,20 @@ TEST(Conversion, OutputRotorRoundTripAndSpecialGains) {
     EXPECT_EQ(0, brake.values.kd);
   }
 }
-TEST(CommandValidation, RejectsNonfiniteLimitsAndProtocolOverflow) {
+TEST(CommandValidation, RejectsNonfiniteLimitsAndProtocolOverflow)
+{
   auto c = config();
   c.normalize();
   ud::Command cmd;
   std::string reason;
   EXPECT_TRUE(ud::validateCommand(c, cmd, reason));
-  for (float ud::Command::* field : {&ud::Command::position, &ud::Command::velocity,
-      &ud::Command::torque, &ud::Command::kp, &ud::Command::kd}) {
-    for (const float value : {std::numeric_limits<float>::quiet_NaN(),
-                             std::numeric_limits<float>::infinity()}) {
+  for (float ud::Command::* field :
+       {&ud::Command::position, &ud::Command::velocity, &ud::Command::torque, &ud::Command::kp,
+        &ud::Command::kd})
+  {
+    for (const float value :
+         {std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity()})
+    {
       auto bad = cmd;
       bad.*field = value;
       EXPECT_FALSE(ud::validateCommand(c, bad, reason));
@@ -194,7 +221,8 @@ TEST(CommandValidation, RejectsNonfiniteLimitsAndProtocolOverflow) {
   cmd.kp = -1;
   EXPECT_FALSE(ud::validateCommand(c, cmd, reason));
 }
-TEST(ControlState, WatchdogTimeoutActionsRecoveryAndLatchedFault) {
+TEST(ControlState, WatchdogTimeoutActionsRecoveryAndLatchedFault)
+{
   auto c = config();
   c.normalize();
   ud::MotorContext motor;
@@ -226,7 +254,8 @@ TEST(ControlState, WatchdogTimeoutActionsRecoveryAndLatchedFault) {
   EXPECT_EQ(ud::ControlState::FAULT_LATCHED, motor.state);
   EXPECT_EQ(ud::Mode::BRAKE, motor.wireCommand(c).mode);
 }
-TEST(IoState, ConsecutiveFailuresRetryOverrideAndSingleSuccessRecovery) {
+TEST(IoState, ConsecutiveFailuresRetryOverrideAndSingleSuccessRecovery)
+{
   auto c = config();
   c.io_retry_rate = 2;
   c.normalize();
@@ -249,7 +278,8 @@ TEST(IoState, ConsecutiveFailuresRetryOverrideAndSingleSuccessRecovery) {
   EXPECT_EQ(0, motor.consecutive_io_failures);
   EXPECT_EQ(c.idle_io_rate, motor.ioRate(c));
 }
-TEST(Scheduler, DropsMissedCyclesAndPublishesPerMotor) {
+TEST(Scheduler, DropsMissedCyclesAndPublishesPerMotor)
+{
   EXPECT_EQ(at(1.04), ud::advanceDeadline(at(1), ud::period(100), at(1.035)));
   EXPECT_EQ(at(1.05), ud::advanceDeadline(at(1), ud::period(100), at(1.04)));
   auto c = config();
@@ -268,15 +298,18 @@ TEST(Scheduler, DropsMissedCyclesAndPublishesPerMotor) {
   EXPECT_TRUE(one.shouldPublish(c, at(1.11)));
 }
 
-struct Record {
+struct Record
+{
   ud::WireCommand command;
   ud::TimePoint time;
 };
-struct FakeBus {
+struct FakeBus
+{
   std::mutex mutex;
   std::condition_variable cv;
   std::map<uint8_t, ud::Feedback> feedback;
-  std::map<uint8_t, std::deque<int>> outcomes;  // 0=success, -1=failure, -2=ID mismatch, -3=exception
+  std::map<uint8_t, std::deque<int>>
+    outcomes;  // 0=success, -1=failure, -2=ID mismatch, -3=exception
   std::vector<Record> transactions;
   std::vector<ud::Feedback> published;
   std::vector<std::string> logs;
@@ -287,33 +320,47 @@ struct FakeBus {
   bool closed = false;
 
   template <typename Predicate>
-  bool wait(Predicate predicate, double timeout = 2) {
+  bool wait(Predicate predicate, double timeout = 2)
+  {
     std::unique_lock<std::mutex> lock(mutex);
     return cv.wait_for(lock, std::chrono::duration<double>(timeout), predicate);
   }
-  bool hasLog(const std::string& text) const {
-    for (const auto& log : logs) if (log.find(text) != std::string::npos) return true;
+  bool hasLog(const std::string & text) const
+  {
+    for (const auto & log : logs) {
+      if (log.find(text) != std::string::npos) {
+        return true;
+      }
+    }
     return false;
   }
-  bool hasCommand(uint8_t id, ud::Mode mode) const {
-    for (const auto& r : transactions)
-      if (r.command.values.id == id && r.command.mode == mode) return true;
+  bool hasCommand(uint8_t id, ud::Mode mode) const
+  {
+    for (const auto & r : transactions) {
+      if (r.command.values.id == id && r.command.mode == mode) {
+        return true;
+      }
+    }
     return false;
   }
 };
-class FakeTransport : public ud::Transport {
- public:
-  explicit FakeTransport(std::shared_ptr<FakeBus> bus) : bus_(std::move(bus)) {
+class FakeTransport : public ud::Transport
+{
+public:
+  explicit FakeTransport(std::shared_ptr<FakeBus> bus) : bus_(std::move(bus))
+  {
     std::lock_guard<std::mutex> lock(bus_->mutex);
     bus_->owners.insert(std::this_thread::get_id());
   }
-  ~FakeTransport() override {
+  ~FakeTransport() override
+  {
     std::lock_guard<std::mutex> lock(bus_->mutex);
     bus_->owners.insert(std::this_thread::get_id());
     bus_->closed = true;
     bus_->cv.notify_all();
   }
-  bool transact(const ud::WireCommand& command, ud::Feedback& feedback) override {
+  bool transact(const ud::WireCommand & command, ud::Feedback & feedback) override
+  {
     std::unique_lock<std::mutex> lock(bus_->mutex);
     bus_->owners.insert(std::this_thread::get_id());
     bus_->transactions.push_back(Record{command, ud::Clock::now()});
@@ -324,50 +371,67 @@ class FakeTransport : public ud::Transport {
       bus_->cv.wait(lock, [this] { return !bus_->hold_foc; });
     }
     const auto id = command.values.id;
-    if (!bus_->feedback.count(id)) return false;
+    if (!bus_->feedback.count(id)) {
+      return false;
+    }
     int outcome = 0;
-    auto& outcomes = bus_->outcomes[id];
-    if (!outcomes.empty()) { outcome = outcomes.front(); outcomes.pop_front(); }
-    if (outcome == -1) return false;
-    if (outcome == -3) throw std::runtime_error("test communication error");
+    auto & outcomes = bus_->outcomes[id];
+    if (!outcomes.empty()) {
+      outcome = outcomes.front();
+      outcomes.pop_front();
+    }
+    if (outcome == -1) {
+      return false;
+    }
+    if (outcome == -3) {
+      throw std::runtime_error("test communication error");
+    }
     feedback = bus_->feedback[id];
     feedback.id = outcome == -2 ? 14 : id;
     feedback.stamp_ns = ++bus_->stamp;
     return true;
   }
- private:
+
+private:
   std::shared_ptr<FakeBus> bus_;
 };
-struct Harness {
+struct Harness
+{
   std::shared_ptr<FakeBus> bus{new FakeBus};
   std::unique_ptr<ud::BusDriver> driver;
-  explicit Harness(ud::Config c, bool add_motors = true) {
+  explicit Harness(ud::Config c, bool add_motors = true)
+  {
     if (add_motors) {
       bus->feedback[0] = ud::Feedback();
       bus->feedback[1] = ud::Feedback();
       bus->feedback[0].mode = bus->feedback[1].mode = ud::Mode::BRAKE;
     }
     const auto shared = bus;
-    driver.reset(new ud::BusDriver(c,
-      [shared] { return std::unique_ptr<ud::Transport>(new FakeTransport(shared)); },
-      [shared](const ud::Feedback& f) {
+    driver.reset(new ud::BusDriver(
+      c, [shared] { return std::unique_ptr<ud::Transport>(new FakeTransport(shared)); },
+      [shared](const ud::Feedback & f) {
         std::lock_guard<std::mutex> lock(shared->mutex);
         shared->published.push_back(f);
         shared->cv.notify_all();
       },
-      [shared](ud::Severity, const std::string& text) {
+      [shared](ud::Severity, const std::string & text) {
         std::lock_guard<std::mutex> lock(shared->mutex);
         shared->logs.push_back(text);
         shared->cv.notify_all();
       }));
   }
-  ~Harness() {
-    { std::lock_guard<std::mutex> lock(bus->mutex); bus->hold_foc = false; }
+  ~Harness()
+  {
+    {
+      std::lock_guard<std::mutex> lock(bus->mutex);
+      bus->hold_foc = false;
+    }
     bus->cv.notify_all();
     driver->stop();
   }
 };
-TEST(BusDriver, ExposesNormalizedStatusRates) {
+TEST(BusDriver, ExposesNormalizedStatusRates)
+{
   auto c = config();
   c.status_pub_rate = 100;
   c.status_check_rate = 20;
@@ -376,7 +440,8 @@ TEST(BusDriver, ExposesNormalizedStatusRates) {
   EXPECT_DOUBLE_EQ(20, h.driver->config().status_check_rate);
   EXPECT_TRUE(h.bus->hasLog("status_pub_rate exceeds status_check_rate; capped"));
 }
-TEST(BusDriver, ScanRetriesAndRejectsUnknownIdWithoutFeedingWatchdog) {
+TEST(BusDriver, ScanRetriesAndRejectsUnknownIdWithoutFeedingWatchdog)
+{
   auto c = config();
   c.motor_id_scan_max = 2;  // ID 2 is absent: scanning it must not produce IO warnings.
   c.command_timeout = 0.05;
@@ -400,14 +465,16 @@ TEST(BusDriver, ScanRetriesAndRejectsUnknownIdWithoutFeedingWatchdog) {
   ASSERT_TRUE(h.bus->wait([&] { return h.bus->hasCommand(0, ud::Mode::FOC); }));
   cmd.torque = std::numeric_limits<float>::quiet_NaN();
   EXPECT_FALSE(h.driver->submit(cmd));
-  ASSERT_TRUE(h.bus->wait([&] { return h.bus->hasLog("Motor 0: Command timeout; applying brake"); }));
+  ASSERT_TRUE(
+    h.bus->wait([&] { return h.bus->hasLog("Motor 0: Command timeout; applying brake"); }));
   EXPECT_EQ(ud::ControlState::CMD_TIMED_OUT, h.driver->statuses()[0].control_state);
   cmd.torque = 2;
   ASSERT_TRUE(h.driver->submit(cmd));
   ASSERT_TRUE(h.driver->submit(cmd));
   h.driver->stop();
   std::lock_guard<std::mutex> lock(h.bus->mutex);
-  EXPECT_EQ(1, std::count(h.bus->logs.begin(), h.bus->logs.end(), "Motor 0: Command reception resumed"));
+  EXPECT_EQ(
+    1, std::count(h.bus->logs.begin(), h.bus->logs.end(), "Motor 0: Command reception resumed"));
   EXPECT_EQ(1u, h.bus->owners.size());
   EXPECT_TRUE(h.bus->closed);
   ASSERT_GE(h.bus->transactions.size(), 3u);
@@ -416,7 +483,7 @@ TEST(BusDriver, ScanRetriesAndRejectsUnknownIdWithoutFeedingWatchdog) {
   EXPECT_TRUE(h.bus->hasLog("mismatched ID"));
   EXPECT_FALSE(h.bus->hasLog("Communication failed"));
   for (size_t i = h.bus->transactions.size() - 2; i < h.bus->transactions.size(); ++i) {
-    const auto& wire = h.bus->transactions[i].command;
+    const auto & wire = h.bus->transactions[i].command;
     EXPECT_EQ(ud::Mode::BRAKE, wire.mode);
     EXPECT_EQ(0, wire.values.torque);
     EXPECT_EQ(0, wire.values.position);
@@ -425,7 +492,8 @@ TEST(BusDriver, ScanRetriesAndRejectsUnknownIdWithoutFeedingWatchdog) {
     EXPECT_EQ(0, wire.values.kd);
   }
 }
-TEST(BusDriver, NoDetectedMotorIsStartupFailure) {
+TEST(BusDriver, NoDetectedMotorIsStartupFailure)
+{
   Harness h(config(), false);
   EXPECT_THROW(h.driver->start(), std::runtime_error);
   EXPECT_FALSE(h.driver->running());
@@ -436,7 +504,8 @@ TEST(BusDriver, NoDetectedMotorIsStartupFailure) {
   EXPECT_TRUE(h.bus->published.empty());
   EXPECT_TRUE(h.bus->closed);
 }
-TEST(BusDriver, StartupCancellationStopsBeforeFirstTransaction) {
+TEST(BusDriver, StartupCancellationStopsBeforeFirstTransaction)
+{
   Harness h(config());
   EXPECT_THROW(h.driver->start([] { return true; }), std::runtime_error);
   EXPECT_FALSE(h.driver->running());
@@ -445,7 +514,8 @@ TEST(BusDriver, StartupCancellationStopsBeforeFirstTransaction) {
   EXPECT_TRUE(h.bus->transactions.empty());
   EXPECT_TRUE(h.bus->closed);
 }
-TEST(BusDriver, StartupCancellationSkipsRetryAndRemainingIdsButBrakesDetectedMotors) {
+TEST(BusDriver, StartupCancellationSkipsRetryAndRemainingIdsButBrakesDetectedMotors)
+{
   for (const bool detected : {false, true}) {
     // Also check cancellation during the final ID, before entering runtime IO.
     for (const int scan_max : {0, 1}) {
@@ -458,13 +528,13 @@ TEST(BusDriver, StartupCancellationSkipsRetryAndRemainingIdsButBrakesDetectedMot
           return !h.bus->transactions.empty();
         });
         FAIL() << "Startup cancellation must throw";
-      } catch (const std::runtime_error& error) {
+      } catch (const std::runtime_error & error) {
         EXPECT_STREQ("Stopped during startup scan", error.what());
       }
       EXPECT_FALSE(h.driver->running());
       std::lock_guard<std::mutex> lock(h.bus->mutex);
       EXPECT_EQ(detected ? 2u : 1u, h.bus->transactions.size());
-      for (const auto& record : h.bus->transactions) {
+      for (const auto & record : h.bus->transactions) {
         EXPECT_EQ(0, record.command.values.id);
         EXPECT_EQ(ud::Mode::BRAKE, record.command.mode);
       }
@@ -475,9 +545,12 @@ TEST(BusDriver, StartupCancellationSkipsRetryAndRemainingIdsButBrakesDetectedMot
     }
   }
 }
-TEST(BusDriver, ShutdownBrakeAttemptsAndFailureLogs) {
-  for (const auto outcomes : {std::deque<int>{0}, std::deque<int>{-1, 0},
-                             std::deque<int>{-1, -1, 0}, std::deque<int>{-2, -3, 0}}) {
+TEST(BusDriver, ShutdownBrakeAttemptsAndFailureLogs)
+{
+  for (const auto outcomes :
+       {std::deque<int>{0}, std::deque<int>{-1, 0}, std::deque<int>{-1, -1, 0},
+        std::deque<int>{-2, -3, 0}})
+  {
     auto c = config();
     c.motor_id_scan_max = 0;
     c.idle_io_rate = c.idle_state_pub_rate = 0.01;
@@ -494,7 +567,7 @@ TEST(BusDriver, ShutdownBrakeAttemptsAndFailureLogs) {
     h.driver->stop();
     std::lock_guard<std::mutex> lock(h.bus->mutex);
     EXPECT_EQ(outcomes.front() == 0 ? 1u : 2u, h.bus->transactions.size());
-    for (const auto& record : h.bus->transactions) {
+    for (const auto & record : h.bus->transactions) {
       EXPECT_EQ(0, record.command.values.id);
       EXPECT_EQ(ud::Mode::BRAKE, record.command.mode);
       EXPECT_EQ(0, record.command.values.position);
@@ -507,12 +580,15 @@ TEST(BusDriver, ShutdownBrakeAttemptsAndFailureLogs) {
     EXPECT_FALSE(h.bus->hasLog("Communication failed"));
     EXPECT_FALSE(h.bus->hasLog("mismatched ID"));
     EXPECT_FALSE(h.bus->hasLog("transaction exception"));
-    EXPECT_EQ(failed, h.bus->hasLog("Motor 0: Could not confirm shutdown brake command after two attempts"));
+    EXPECT_EQ(
+      failed,
+      h.bus->hasLog("Motor 0: Could not confirm shutdown brake command after two attempts"));
     EXPECT_EQ(!failed, h.bus->hasLog("shutdown BRAKE acknowledged"));
     EXPECT_TRUE(h.bus->closed);
   }
 }
-TEST(BusDriver, ScanFaultLatchesOnlyAffectedMotor) {
+TEST(BusDriver, ScanFaultLatchesOnlyAffectedMotor)
+{
   Harness h(config());
   h.bus->feedback[0].error = 2;
   h.driver->start();
@@ -529,7 +605,8 @@ TEST(BusDriver, ScanFaultLatchesOnlyAffectedMotor) {
   EXPECT_TRUE(h.bus->hasLog("over-current"));
   EXPECT_TRUE(h.bus->hasLog("FAULT_LATCHED"));
 }
-TEST(BusDriver, IoFailureDisablesRetryAndNeverPublishesMismatchedFeedback) {
+TEST(BusDriver, IoFailureDisablesRetryAndNeverPublishesMismatchedFeedback)
+{
   auto c = config();
   c.idle_io_rate = 100;
   c.idle_state_pub_rate = 100;
@@ -539,13 +616,15 @@ TEST(BusDriver, IoFailureDisablesRetryAndNeverPublishesMismatchedFeedback) {
     std::lock_guard<std::mutex> lock(h.bus->mutex);
     h.bus->outcomes[0] = {-2, -1};
   }
-  ASSERT_TRUE(h.bus->wait([&] { return h.bus->hasLog("Communication failed twice; automatic retries disabled"); }));
+  ASSERT_TRUE(h.bus->wait(
+    [&] { return h.bus->hasLog("Communication failed twice; automatic retries disabled"); }));
   EXPECT_TRUE(h.driver->statuses()[0].io_error);
   size_t count;
   {
     std::lock_guard<std::mutex> lock(h.bus->mutex);
-    count = std::count_if(h.bus->transactions.begin(), h.bus->transactions.end(),
-      [](const Record& r) { return r.command.values.id == 0; });
+    count = std::count_if(
+      h.bus->transactions.begin(), h.bus->transactions.end(),
+      [](const Record & r) { return r.command.values.id == 0; });
   }
   ud::Command cmd;
   cmd.torque = 2;
@@ -553,13 +632,18 @@ TEST(BusDriver, IoFailureDisablesRetryAndNeverPublishesMismatchedFeedback) {
   ASSERT_TRUE(h.bus->wait([&] { return h.bus->transactions.size() > count + 5; }));
   {
     std::lock_guard<std::mutex> lock(h.bus->mutex);
-    EXPECT_EQ(count, static_cast<size_t>(std::count_if(
-      h.bus->transactions.begin(), h.bus->transactions.end(),
-      [](const Record& r) { return r.command.values.id == 0; })));
-    for (const auto& f : h.bus->published) EXPECT_NE(14, f.id);
+    EXPECT_EQ(
+      count,
+      static_cast<size_t>(std::count_if(
+        h.bus->transactions.begin(), h.bus->transactions.end(),
+        [](const Record & r) { return r.command.values.id == 0; })));
+    for (const auto & f : h.bus->published) {
+      EXPECT_NE(14, f.id);
+    }
   }
 }
-TEST(BusDriver, RetryUsesFreshCommandAndOneSuccessRecovers) {
+TEST(BusDriver, RetryUsesFreshCommandAndOneSuccessRecovers)
+{
   auto c = config();
   c.idle_io_rate = 100;
   c.io_retry_rate = 10;
@@ -569,7 +653,8 @@ TEST(BusDriver, RetryUsesFreshCommandAndOneSuccessRecovers) {
     std::lock_guard<std::mutex> lock(h.bus->mutex);
     h.bus->outcomes[0] = {-1, -2, -2, -3, 0};
   }
-  ASSERT_TRUE(h.bus->wait([&] { return h.bus->hasLog("Communication failed twice; retrying at 10 Hz"); }));
+  ASSERT_TRUE(
+    h.bus->wait([&] { return h.bus->hasLog("Communication failed twice; retrying at 10 Hz"); }));
   EXPECT_TRUE(h.driver->statuses()[0].io_error);
   ud::Command cmd;
   cmd.torque = 3;
@@ -584,17 +669,22 @@ TEST(BusDriver, RetryUsesFreshCommandAndOneSuccessRecovers) {
     h.bus->outcomes[0] = {-3, -2, 0};
   }
   ASSERT_TRUE(h.bus->wait([&] {
-    return std::count(h.bus->logs.begin(), h.bus->logs.end(), "Motor 0: Communication restored") == 2;
+    return std::count(h.bus->logs.begin(), h.bus->logs.end(), "Motor 0: Communication restored") ==
+      2;
   }));
   std::lock_guard<std::mutex> lock(h.bus->mutex);
   EXPECT_TRUE(h.bus->hasCommand(0, ud::Mode::FOC));
   EXPECT_EQ(1, std::count(h.bus->logs.begin(), h.bus->logs.end(), "Motor 0: Communication failed"));
-  EXPECT_EQ(2, std::count(h.bus->logs.begin(), h.bus->logs.end(),
-                         "Motor 0: Communication failed twice; retrying at 10 Hz"));
+  EXPECT_EQ(
+    2,
+    std::count(
+      h.bus->logs.begin(), h.bus->logs.end(),
+      "Motor 0: Communication failed twice; retrying at 10 Hz"));
   EXPECT_TRUE(h.bus->hasLog("transaction exception: test communication error"));
   EXPECT_FALSE(h.bus->hasLog("mismatched ID"));
 }
-TEST(BusDriver, CommandSubmissionDoesNotBlockBehindTransactionAndSafetyOverridesIt) {
+TEST(BusDriver, CommandSubmissionDoesNotBlockBehindTransactionAndSafetyOverridesIt)
+{
   auto c = config();
   c.command_timeout = 5;
   c.active_state_pub_rate = 0.1;  // Safety is inspected even when state publication is suppressed.
@@ -618,7 +708,8 @@ TEST(BusDriver, CommandSubmissionDoesNotBlockBehindTransactionAndSafetyOverrides
   }
   h.bus->cv.notify_all();
   EXPECT_TRUE(submitted.get());
-  ASSERT_TRUE(h.bus->wait([&] { return h.bus->hasLog("Overtemperature (81°C); brake requested until driver restart"); }));
+  ASSERT_TRUE(h.bus->wait(
+    [&] { return h.bus->hasLog("Overtemperature (81°C); brake requested until driver restart"); }));
   {
     std::lock_guard<std::mutex> lock(h.bus->mutex);
     h.bus->feedback[0].temperature = 20;
@@ -629,7 +720,8 @@ TEST(BusDriver, CommandSubmissionDoesNotBlockBehindTransactionAndSafetyOverrides
   std::lock_guard<std::mutex> lock(h.bus->mutex);
   EXPECT_FALSE(h.bus->hasCommand(0, ud::Mode::FOC));
 }
-TEST(BusDriver, DisabledErrorStopStillLogsErrorEdges) {
+TEST(BusDriver, DisabledErrorStopStillLogsErrorEdges)
+{
   auto c = config();
   c.stop_on_motor_error = false;
   c.active_io_rate = 100;
@@ -644,12 +736,14 @@ TEST(BusDriver, DisabledErrorStopStillLogsErrorEdges) {
     std::lock_guard<std::mutex> lock(h.bus->mutex);
     h.bus->feedback[0].error = 0;
   }
-  ASSERT_TRUE(h.bus->wait([&] { return h.bus->hasLog("Motor 0: Reported error code cleared (0)"); }));
+  ASSERT_TRUE(
+    h.bus->wait([&] { return h.bus->hasLog("Motor 0: Reported error code cleared (0)"); }));
   std::lock_guard<std::mutex> lock(h.bus->mutex);
   EXPECT_FALSE(h.bus->hasLog("FAULT_LATCHED"));
   EXPECT_TRUE(h.bus->hasLog("encoder fault"));
 }
-TEST(BusDriver, RateMeasurementCountsAttemptsIncludingAlternatingFailures) {
+TEST(BusDriver, RateMeasurementCountsAttemptsIncludingAlternatingFailures)
+{
   auto c = config();
   c.motor_id_scan_max = 0;
   c.idle_io_rate = 100;
@@ -666,11 +760,12 @@ TEST(BusDriver, RateMeasurementCountsAttemptsIncludingAlternatingFailures) {
   EXPECT_FALSE(h.bus->hasLog("I/O attempt rate"));
   EXPECT_FALSE(h.bus->hasLog("Communication failed twice"));
 }
-TEST(BusDriver, WarningThrottleIsIndependentForEachMotorAndLogType) {
+TEST(BusDriver, WarningThrottleIsIndependentForEachMotorAndLogType)
+{
   auto c = config();
   c.idle_io_rate = 100;
   Harness h(c);
-  for (auto& entry : h.bus->feedback) {
+  for (auto & entry : h.bus->feedback) {
     entry.second.mode = ud::Mode::UNKNOWN;
     entry.second.temperature = 71;
     entry.second.velocity = 31 * ud::profile(c.motor_type).sdk_gear_ratio;
@@ -681,11 +776,16 @@ TEST(BusDriver, WarningThrottleIsIndependentForEachMotorAndLogType) {
   h.driver->stop();
   std::lock_guard<std::mutex> lock(h.bus->mutex);
   for (uint8_t id : {0, 1}) {
-    for (const auto& text : {"reported UNKNOWN mode", "feedback velocity exceeds limit",
-                            "feedback torque exceeds limit", "Temperature 71°C exceeds warning threshold (70°C)"}) {
+    for (const auto & text :
+         {"reported UNKNOWN mode", "feedback velocity exceeds limit",
+          "feedback torque exceeds limit", "Temperature 71°C exceeds warning threshold (70°C)"})
+    {
       const std::string prefix = "Motor " + std::to_string(id) + ": " + text;
-      EXPECT_EQ(1, std::count_if(h.bus->logs.begin(), h.bus->logs.end(),
-        [&prefix](const std::string& log) { return log.find(prefix) != std::string::npos; }));
+      EXPECT_EQ(
+        1,
+        std::count_if(h.bus->logs.begin(), h.bus->logs.end(), [&prefix](const std::string & log) {
+          return log.find(prefix) != std::string::npos;
+        }));
     }
   }
 }

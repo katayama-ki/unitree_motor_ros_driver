@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright katayama-ki
+# SPDX-License-Identifier: MIT
+
 """Exercise the actual ROS node and bundled SDK on an emulated GO serial bus."""
 
 import os
@@ -16,7 +19,12 @@ import unittest
 import roslib.packages
 import rospy
 import rostest
-from unitree_motor_ros_driver.msg import MotorCommand, MotorState, MotorStatus, MotorStatusArray
+from unitree_motor_ros_driver.msg import (
+    MotorCommand,
+    MotorState,
+    MotorStatus,
+    MotorStatusArray,
+)
 
 
 def crc_ccitt(data):
@@ -44,30 +52,55 @@ class RosPtyTest(unittest.TestCase):
         self.reader = threading.Thread(target=self.emulate, daemon=True)
         self.reader.start()
         self.subscriber = rospy.Subscriber("/pty_driver/state", MotorState, self.state)
-        self.status_subscriber = rospy.Subscriber("/pty_driver/status", MotorStatusArray, self.status)
-        self.publisher = rospy.Publisher("/pty_driver/command", MotorCommand, queue_size=10)
-        executable = roslib.packages.find_node("unitree_motor_ros_driver", "unitree_motor_driver_node")[0]
+        self.status_subscriber = rospy.Subscriber(
+            "/pty_driver/status", MotorStatusArray, self.status
+        )
+        self.publisher = rospy.Publisher(
+            "/pty_driver/command", MotorCommand, queue_size=10
+        )
+        executable = roslib.packages.find_node(
+            "unitree_motor_ros_driver", "unitree_motor_driver_node"
+        )[0]
         environment = os.environ.copy()
         environment["UNITREE_TEST_PTY"] = os.ttyname(self.slave)
-        environment["LD_PRELOAD"] = os.path.join(os.path.dirname(os.path.dirname(executable)),
-                                                 "libpty_serial_shim.so")
+        environment["LD_PRELOAD"] = os.path.join(
+            os.path.dirname(os.path.dirname(executable)), "libpty_serial_shim.so"
+        )
         extra_params = {
             "test_topics_conversion_fault_watchdog_and_shutdown": [
-                "_state_pub_queue:=2", "_command_sub_queue:=3"],
-            "test_invalid_status_rate_fails_before_serial_open": ["_status_pub_rate:=0"],
+                "_state_pub_queue:=2",
+                "_command_sub_queue:=3",
+            ],
+            "test_invalid_status_rate_fails_before_serial_open": [
+                "_status_pub_rate:=0"
+            ],
             "test_status_changes_bypass_heartbeat": ["_status_pub_rate:=0.1"],
             "test_status_rate_cap": ["_status_pub_rate:=100", "_status_check_rate:=10"],
             "test_slow_status_check_keeps_shutdown_responsive": [
-                "_status_pub_rate:=0.1", "_status_check_rate:=0.1"],
+                "_status_pub_rate:=0.1",
+                "_status_check_rate:=0.1",
+            ],
         }.get(self._testMethodName, [])
-        self.process = subprocess.Popen([
-            executable, "__name:=pty_driver",
-            "_serial_port:=" + os.ttyname(self.slave), "_motor_type:=GO-M8010-6",
-            "_motor_id_scan_max:=" + ("14" if self.cancel_scan else "1"),
-            "_command_timeout:=0.2", "_timeout_action:=brake",
-            "_status_pub_rate:=5", "_status_check_rate:=50",
-            "_active_io_rate:=100", "_idle_io_rate:=20", "_idle_state_pub_rate:=20",
-        ] + extra_params, stdout=self.output, stderr=subprocess.STDOUT, env=environment)
+        self.process = subprocess.Popen(
+            [
+                executable,
+                "__name:=pty_driver",
+                "_serial_port:=" + os.ttyname(self.slave),
+                "_motor_type:=GO-M8010-6",
+                "_motor_id_scan_max:=" + ("14" if self.cancel_scan else "1"),
+                "_command_timeout:=0.2",
+                "_timeout_action:=brake",
+                "_status_pub_rate:=5",
+                "_status_check_rate:=50",
+                "_active_io_rate:=100",
+                "_idle_io_rate:=20",
+                "_idle_state_pub_rate:=20",
+            ]
+            + extra_params,
+            stdout=self.output,
+            stderr=subprocess.STDOUT,
+            env=environment,
+        )
 
     def tearDown(self):
         if self.process and self.process.poll() is None:
@@ -103,7 +136,10 @@ class RosPtyTest(unittest.TestCase):
                 buffer += os.read(self.master, 4096)
                 while len(buffer) >= 17:
                     packet, buffer = buffer[:17], buffer[17:]
-                    if packet[:2] != b"\xfe\xee" or crc_ccitt(packet[:-2]) != struct.unpack("<H", packet[-2:])[0]:
+                    if (
+                        packet[:2] != b"\xfe\xee"
+                        or crc_ccitt(packet[:-2]) != struct.unpack("<H", packet[-2:])[0]
+                    ):
                         raise ValueError("Invalid SDK command framing/CRC")
                     mode = packet[2]
                     motor_id = mode & 15
@@ -114,11 +150,19 @@ class RosPtyTest(unittest.TestCase):
                         continue
                     # Output feedback is approx q=1 rad, dq=2 rad/s, tau=3 Nm.
                     # ID 1 has a startup over-current fault; ID 0 stays normal.
-                    payload = struct.pack("<2sBhhibH", b"\xfe\xee", mode,
-                                          int(3 / 6.33 * 256), int(2 * 6.33 / 6.2832 * 256),
-                                          int(6.33 / 6.2832 * 32768), 25,
-                                          2 if motor_id == 1 else 0)
-                    os.write(self.master, payload + struct.pack("<H", crc_ccitt(payload)))
+                    payload = struct.pack(
+                        "<2sBhhibH",
+                        b"\xfe\xee",
+                        mode,
+                        int(3 / 6.33 * 256),
+                        int(2 * 6.33 / 6.2832 * 256),
+                        int(6.33 / 6.2832 * 32768),
+                        25,
+                        2 if motor_id == 1 else 0,
+                    )
+                    os.write(
+                        self.master, payload + struct.pack("<H", crc_ccitt(payload))
+                    )
         except Exception as error:
             self.error = error
 
@@ -146,18 +190,36 @@ class RosPtyTest(unittest.TestCase):
         self.assertIn("Invalid parameter: status_pub_rate", self.output.read())
 
     def test_status_changes_bypass_heartbeat(self):
-        self.wait_for(lambda: self.statuses and self.publisher.get_num_connections() > 0)
+        self.wait_for(
+            lambda: self.statuses and self.publisher.get_num_connections() > 0
+        )
         sent = time.monotonic()
         self.publisher.publish(MotorCommand(id=0, torque=1))
-        self.wait_for(lambda: any(m.statuses[0].control_state == MotorStatus.ACTIVE
-                                  for _, m in self.statuses), seconds=1)
-        self.wait_for(lambda: any(m.statuses[0].control_state == MotorStatus.CMD_TIMED_OUT
-                                  for _, m in self.statuses), seconds=1)
+        self.wait_for(
+            lambda: any(
+                m.statuses[0].control_state == MotorStatus.ACTIVE
+                for _, m in self.statuses
+            ),
+            seconds=1,
+        )
+        self.wait_for(
+            lambda: any(
+                m.statuses[0].control_state == MotorStatus.CMD_TIMED_OUT
+                for _, m in self.statuses
+            ),
+            seconds=1,
+        )
         with self.lock:
-            active = next(t for t, m in self.statuses
-                          if m.statuses[0].control_state == MotorStatus.ACTIVE)
-            expired = next(t for t, m in self.statuses
-                           if m.statuses[0].control_state == MotorStatus.CMD_TIMED_OUT)
+            active = next(
+                t
+                for t, m in self.statuses
+                if m.statuses[0].control_state == MotorStatus.ACTIVE
+            )
+            expired = next(
+                t
+                for t, m in self.statuses
+                if m.statuses[0].control_state == MotorStatus.CMD_TIMED_OUT
+            )
         self.assertLess(active - sent, 0.15)
         self.assertLess(expired - sent, 0.5)
 
@@ -170,7 +232,9 @@ class RosPtyTest(unittest.TestCase):
         self.assertGreater(average_interval, 0.08)
         self.assertLess(average_interval, 0.15)
         self.output.seek(0)
-        self.assertIn("status_pub_rate exceeds status_check_rate; capped", self.output.read())
+        self.assertIn(
+            "status_pub_rate exceeds status_check_rate; capped", self.output.read()
+        )
 
     def test_slow_status_check_keeps_shutdown_responsive(self):
         self.wait_for(lambda: bool(self.statuses))
@@ -198,8 +262,13 @@ class RosPtyTest(unittest.TestCase):
         self.assertIn("Serial bus closed", log)
 
     def test_topics_conversion_fault_watchdog_and_shutdown(self):
-        self.wait_for(lambda: self.publisher.get_num_connections() > 0 and
-                      any(s.id == 0 for s in self.states) and any(s.id == 1 for s in self.states))
+        self.wait_for(
+            lambda: (
+                self.publisher.get_num_connections() > 0
+                and any(s.id == 0 for s in self.states)
+                and any(s.id == 1 for s in self.states)
+            )
+        )
         with self.lock:
             normal = next(s for s in self.states if s.id == 0)
             fault = next(s for s in self.states if s.id == 1)
@@ -226,33 +295,63 @@ class RosPtyTest(unittest.TestCase):
             self.assertGreater(interval, 0.15)
             self.assertLess(interval, 0.4)
         # A newly connected subscriber receives the latest latched array.
-        latched = rospy.wait_for_message("/pty_driver/status", MotorStatusArray, timeout=2)
+        latched = rospy.wait_for_message(
+            "/pty_driver/status", MotorStatusArray, timeout=2
+        )
         self.assertEqual(latched._connection_header.get("latching"), "1")
 
-        command = MotorCommand(id=0, position=0.4, velocity=-0.3, torque=5, kp=25, kd=0.6)
+        command = MotorCommand(
+            id=0, position=0.4, velocity=-0.3, torque=5, kp=25, kd=0.6
+        )
         self.publisher.publish(command)
-        self.wait_for(lambda: any(motor_id == 0 and mode == 1 for motor_id, mode, _ in self.commands))
+        self.wait_for(
+            lambda: any(
+                motor_id == 0 and mode == 1 for motor_id, mode, _ in self.commands
+            )
+        )
         with self.lock:
-            values = next(values for motor_id, mode, values in self.commands if motor_id == 0 and mode == 1)
+            values = next(
+                values
+                for motor_id, mode, values in self.commands
+                if motor_id == 0 and mode == 1
+            )
         self.assertEqual(values[0], int(5 / 6.33 * 256))
-        self.assertEqual(values[3], int(25 / (6.33 ** 2) / 25.6 * 32768))
-        self.assertEqual(values[4], int(0.6 / (6.33 ** 2) / 25.6 * 32768))
-        self.wait_for(lambda: any(m.statuses[0].control_state == MotorStatus.ACTIVE
-                                  for _, m in self.statuses))
+        self.assertEqual(values[3], int(25 / (6.33**2) / 25.6 * 32768))
+        self.assertEqual(values[4], int(0.6 / (6.33**2) / 25.6 * 32768))
+        self.wait_for(
+            lambda: any(
+                m.statuses[0].control_state == MotorStatus.ACTIVE
+                for _, m in self.statuses
+            )
+        )
         self.publisher.publish(MotorCommand(id=1, torque=5))
-        self.wait_for(lambda: any(s.id == 0 and s.mode == MotorState.FOC for s in self.states))
+        self.wait_for(
+            lambda: any(s.id == 0 and s.mode == MotorState.FOC for s in self.states)
+        )
 
         # Invalid commands must not refresh the watchdog or replace the valid command.
         for _ in range(30):
             self.publisher.publish(MotorCommand(id=0, torque=float("nan")))
             time.sleep(0.01)
-        self.wait_for(lambda: any(motor_id == 0 and mode == 0 for motor_id, mode, _ in self.commands[-4:]))
-        self.wait_for(lambda: any(m.statuses[0].control_state == MotorStatus.CMD_TIMED_OUT
-                                  for _, m in self.statuses))
+        self.wait_for(
+            lambda: any(
+                motor_id == 0 and mode == 0 for motor_id, mode, _ in self.commands[-4:]
+            )
+        )
+        self.wait_for(
+            lambda: any(
+                m.statuses[0].control_state == MotorStatus.CMD_TIMED_OUT
+                for _, m in self.statuses
+            )
+        )
         with self.lock:
-            self.assertFalse(any(motor_id == 1 and mode == 1 for motor_id, mode, _ in self.commands))
+            self.assertFalse(
+                any(motor_id == 1 and mode == 1 for motor_id, mode, _ in self.commands)
+            )
             for motor_id in (0, 1):
-                stamps = [s.header.stamp.to_nsec() for s in self.states if s.id == motor_id]
+                stamps = [
+                    s.header.stamp.to_nsec() for s in self.states if s.id == motor_id
+                ]
                 self.assertEqual(len(stamps), len(set(stamps)))
 
         self.process.send_signal(signal.SIGINT)

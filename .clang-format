@@ -1,6 +1,5 @@
 ---
 # Based on the ROS 2 ament_clang_format configuration, using ROS 1 Noetic C++11.
-Language: Cpp
 BasedOnStyle: Google
 Standard: Cpp11
 ColumnLimit: 100
@@ -29,6 +28,7 @@ BraceWrapping:
 BreakConstructorInitializers: BeforeColon
 ConstructorInitializerIndentWidth: 0
 DerivePointerAlignment: false
+InsertBraces: true
 PointerAlignment: Middle
 ReflowComments: false
 ...

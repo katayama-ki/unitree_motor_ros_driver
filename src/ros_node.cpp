@@ -1,10 +1,5 @@
-#include "unitree_motor_ros_driver/MotorCommand.h"
-#include "unitree_motor_ros_driver/MotorState.h"
-#include "unitree_motor_ros_driver/MotorStatusArray.h"
-#include "unitree_motor_ros_driver/sdk_transport.hpp"
-
-#include <ros/ros.h>
-#include <XmlRpcValue.h>
+// SPDX-FileCopyrightText: Copyright katayama-ki
+// SPDX-License-Identifier: MIT
 
 #include <algorithm>
 #include <cstdio>
@@ -14,29 +9,47 @@
 #include <thread>
 #include <utility>
 
-namespace {
+#include "XmlRpcValue.h"
+#include "ros/ros.h"
+#include "unitree_motor_ros_driver/MotorCommand.h"
+#include "unitree_motor_ros_driver/MotorState.h"
+#include "unitree_motor_ros_driver/MotorStatusArray.h"
+#include "unitree_motor_ros_driver/sdk_transport.hpp"
+
+namespace
+{
 template <typename T>
-void parameter(const ros::NodeHandle& node, const std::string& name, T& value) {
-  if (node.hasParam(name) && !node.getParam(name, value))
+void parameter(const ros::NodeHandle & node, const std::string & name, T & value)
+{
+  if (node.hasParam(name) && !node.getParam(name, value)) {
     throw std::invalid_argument("Wrong parameter type: " + name);
+  }
 }
 // ros::getParam(double) may coerce booleans; reject them and nonnumeric XML-RPC types.
-void parameter(const ros::NodeHandle& node, const std::string& name, double& value) {
-  if (!node.hasParam(name)) return;
+void parameter(const ros::NodeHandle & node, const std::string & name, double & value)
+{
+  if (!node.hasParam(name)) {
+    return;
+  }
   XmlRpc::XmlRpcValue raw;
-  if (!node.getParam(name, raw) ||
-      (raw.getType() != XmlRpc::XmlRpcValue::TypeInt &&
-       raw.getType() != XmlRpc::XmlRpcValue::TypeDouble))
+  if (
+    !node.getParam(name, raw) ||
+    (raw.getType() != XmlRpc::XmlRpcValue::TypeInt &&
+     raw.getType() != XmlRpc::XmlRpcValue::TypeDouble))
+  {
     throw std::invalid_argument("Wrong parameter type: " + name);
-  value = raw.getType() == XmlRpc::XmlRpcValue::TypeInt
-    ? static_cast<int>(raw) : static_cast<double>(raw);
+  }
+  value = raw.getType() == XmlRpc::XmlRpcValue::TypeInt ? static_cast<int>(raw)
+                                                        : static_cast<double>(raw);
 }
-unitree_driver::Config readConfig(const ros::NodeHandle& node) {
+unitree_driver::Config readConfig(const ros::NodeHandle & node)
+{
   unitree_driver::Config c;
   std::string type;
   std::string action = "zero_torque";
-  if (!node.getParam("serial_port", c.serial_port) || !node.getParam("motor_type", type))
+  if (!node.getParam("serial_port", c.serial_port) || !node.getParam("motor_type", type)) {
     throw std::invalid_argument("serial_port and motor_type are required private parameters");
+  }
   c.motor_type = unitree_driver::parseMotorType(type);
   parameter(node, "motor_id_scan_max", c.motor_id_scan_max);
   parameter(node, "command_timeout", c.command_timeout);
@@ -62,24 +75,33 @@ unitree_driver::Config readConfig(const ros::NodeHandle& node) {
   parameter(node, "status_check_rate", c.status_check_rate);
   return c;
 }
-void logRos(unitree_driver::Severity severity, const std::string& text) {
+void logRos(unitree_driver::Severity severity, const std::string & text)
+{
   // rosconsole is torn down by SIGINT/rosnode kill before the bus sends its final
   // BRAKEs. Keep their acknowledgments/failures visible after ROS shutdown.
   if (ros::isShuttingDown() || !ros::ok()) {
-    const char* level = severity == unitree_driver::Severity::ERROR ? "ERROR" :
-      severity == unitree_driver::Severity::WARN ? "WARN" : "INFO";
+    const char * level = severity == unitree_driver::Severity::ERROR ? "ERROR"
+      : severity == unitree_driver::Severity::WARN                   ? "WARN"
+                                                                     : "INFO";
     std::fprintf(stderr, "[%s] %s\n", level, text.c_str());
     return;
   }
   switch (severity) {
-    case unitree_driver::Severity::INFO: ROS_INFO_STREAM(text); break;
-    case unitree_driver::Severity::WARN: ROS_WARN_STREAM(text); break;
-    case unitree_driver::Severity::ERROR: ROS_ERROR_STREAM(text); break;
+    case unitree_driver::Severity::INFO:
+      ROS_INFO_STREAM(text);
+      break;
+    case unitree_driver::Severity::WARN:
+      ROS_WARN_STREAM(text);
+      break;
+    case unitree_driver::Severity::ERROR:
+      ROS_ERROR_STREAM(text);
+      break;
   }
 }
 }  // namespace
 
-int main(int argc, char** argv) {
+int main(int argc, char ** argv)
+{
   ros::init(argc, argv, "unitree_motor_driver");
   ros::NodeHandle node("~");
   try {
@@ -88,10 +110,10 @@ int main(int argc, char** argv) {
     unitree_driver::BusDriver driver(
       config,
       [config] {
-        return unitree_driver::makeSdkTransport(config.serial_port, config.motor_type,
-                                                [] { return ros::Time::now().toNSec(); });
+        return unitree_driver::makeSdkTransport(
+          config.serial_port, config.motor_type, [] { return ros::Time::now().toNSec(); });
       },
-      [&publisher](const unitree_driver::Feedback& f) {
+      [&publisher](const unitree_driver::Feedback & f) {
         unitree_motor_ros_driver::MotorState msg;
         msg.header.stamp.fromNSec(f.stamp_ns);
         msg.id = f.id;
@@ -102,19 +124,20 @@ int main(int argc, char** argv) {
         msg.temperature = f.temperature;
         msg.error = f.error;
         publisher.publish(msg);
-      }, logRos);
+      },
+      logRos);
     publisher = node.advertise<unitree_motor_ros_driver::MotorState>(
       "state", driver.config().state_pub_queue);
     ROS_INFO_STREAM("Publishing motor state on " << publisher.getTopic());
     // Suppress the SDK's direct console output; diagnostics are logged through ROS.
     std::cout.setstate(std::ios_base::failbit);
     driver.start([] { return ros::isShuttingDown() || !ros::ok(); });
-    auto status_publisher = node.advertise<unitree_motor_ros_driver::MotorStatusArray>(
-      "status", 1, true);
+    auto status_publisher =
+      node.advertise<unitree_motor_ros_driver::MotorStatusArray>("status", 1, true);
     ROS_INFO_STREAM("Publishing motor status on " << status_publisher.getTopic());
     auto subscriber = node.subscribe<unitree_motor_ros_driver::MotorCommand>(
       "command", driver.config().command_sub_queue,
-      [&driver](const unitree_motor_ros_driver::MotorCommand::ConstPtr& msg) {
+      [&driver](const unitree_motor_ros_driver::MotorCommand::ConstPtr & msg) {
         unitree_driver::Command command;
         command.id = msg->id;
         command.position = msg->position;
@@ -140,13 +163,15 @@ int main(int argc, char** argv) {
     while (true) {
       const auto now = unitree_driver::Clock::now();
       if (now >= next_shutdown_check) {
-        if (!ros::ok() || !driver.running()) break;
-        next_shutdown_check = unitree_driver::advanceDeadline(
-          next_shutdown_check, shutdown_interval, now);
+        if (!ros::ok() || !driver.running()) {
+          break;
+        }
+        next_shutdown_check =
+          unitree_driver::advanceDeadline(next_shutdown_check, shutdown_interval, now);
       }
       if (now >= next_check) {
         unitree_motor_ros_driver::MotorStatusArray msg;
-        for (const auto& status : driver.statuses()) {
+        for (const auto & status : driver.statuses()) {
           unitree_motor_ros_driver::MotorStatus motor;
           motor.id = status.id;
           motor.control_state = static_cast<uint8_t>(status.control_state);
@@ -159,8 +184,8 @@ int main(int argc, char** argv) {
           status_publisher.publish(msg);
           last_status = std::move(msg);
           has_status = true;
-          next_publish = changed ? now + pub_interval :
-            unitree_driver::advanceDeadline(next_publish, pub_interval, now);
+          next_publish = changed ? now + pub_interval
+                                 : unitree_driver::advanceDeadline(next_publish, pub_interval, now);
         }
         next_check = unitree_driver::advanceDeadline(next_check, check_interval, now);
       }
@@ -174,8 +199,10 @@ int main(int argc, char** argv) {
       ROS_FATAL("Communication thread stopped unexpectedly");
       return 1;
     }
-  } catch (const std::exception& error) {
-    if (ros::isShuttingDown() || !ros::ok()) return 0;
+  } catch (const std::exception & error) {
+    if (ros::isShuttingDown() || !ros::ok()) {
+      return 0;
+    }
     ROS_FATAL_STREAM("Unitree motor driver startup failed: " << error.what());
     return 1;
   }

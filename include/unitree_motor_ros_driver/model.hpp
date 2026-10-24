@@ -1,21 +1,54 @@
-#pragma once
+// SPDX-FileCopyrightText: Copyright katayama-ki
+// SPDX-License-Identifier: MIT
+
+#ifndef UNITREE_MOTOR_ROS_DRIVER__MODEL_HPP_
+#define UNITREE_MOTOR_ROS_DRIVER__MODEL_HPP_
 
 #include <chrono>
 #include <cstdint>
 #include <string>
 #include <vector>
 
-namespace unitree_driver {
+namespace unitree_driver
+{
 
 using Clock = std::chrono::steady_clock;
 using TimePoint = Clock::time_point;
-enum class MotorType { A1, B1, GO_M8010_6 };
-enum class Mode : uint8_t { BRAKE = 0, FOC = 1, CALIBRATE = 2, UNKNOWN = 255 };
-enum class ControlState { IDLE, ACTIVE, CMD_TIMED_OUT, FAULT_LATCHED };
-enum class TimeoutAction { ZERO_TORQUE, DAMPING, BRAKE };
-enum class Severity { INFO, WARN, ERROR };
+enum class MotorType
+{
+  A1,
+  B1,
+  GO_M8010_6
+};
+enum class Mode : uint8_t
+{
+  BRAKE = 0,
+  FOC = 1,
+  CALIBRATE = 2,
+  UNKNOWN = 255
+};
+enum class ControlState
+{
+  IDLE,
+  ACTIVE,
+  CMD_TIMED_OUT,
+  FAULT_LATCHED
+};
+enum class TimeoutAction
+{
+  ZERO_TORQUE,
+  DAMPING,
+  BRAKE
+};
+enum class Severity
+{
+  INFO,
+  WARN,
+  ERROR
+};
 
-struct MotorProfile {
+struct MotorProfile
+{
   double sdk_gear_ratio;
   double velocity_limit;
   double torque_limit;
@@ -30,12 +63,13 @@ constexpr MotorProfile kA1Profile{9.1, 21.0, 33.5};
 constexpr MotorProfile kB1Profile{8.66, 29.5, 140.0};
 constexpr MotorProfile kGoProfile{6.33, 30.0, 23.7};
 MotorProfile profile(MotorType type);
-MotorType parseMotorType(const std::string& value);
-TimeoutAction parseTimeoutAction(const std::string& value);
+MotorType parseMotorType(const std::string & value);
+TimeoutAction parseTimeoutAction(const std::string & value);
 bool isBroadcast(MotorType type, uint8_t id);
 std::vector<uint8_t> scanIds(MotorType type, int maximum);
 
-struct Command {
+struct Command
+{
   uint8_t id = 0;
   float position = 0;
   float velocity = 0;
@@ -45,12 +79,14 @@ struct Command {
 };
 
 // Physical fields are on the rotor side; kp/kd include the SDK's A1/B1 factors.
-struct WireCommand {
+struct WireCommand
+{
   Command values;
   Mode mode = Mode::BRAKE;
 };
 
-struct Feedback {
+struct Feedback
+{
   uint8_t id = 0;
   Mode mode = Mode::UNKNOWN;
   float position = 0;
@@ -62,13 +98,15 @@ struct Feedback {
   uint64_t stamp_ns = 0;
 };
 
-struct MotorStatus {
+struct MotorStatus
+{
   uint8_t id;
   ControlState control_state;
   bool io_error;
 };
 
-struct Config {
+struct Config
+{
   std::string serial_port;
   MotorType motor_type = MotorType::GO_M8010_6;
   int motor_id_scan_max = 14;
@@ -97,15 +135,16 @@ struct Config {
   std::vector<std::string> normalize();
 };
 
-WireCommand toWire(MotorType type, const Command& output, Mode mode = Mode::FOC);
-Feedback toOutput(MotorType type, const Feedback& rotor);
-bool validateCommand(const Config& config, const Command& command, std::string& reason);
+WireCommand toWire(MotorType type, const Command & output, Mode mode = Mode::FOC);
+Feedback toOutput(MotorType type, const Feedback & rotor);
+bool validateCommand(const Config & config, const Command & command, std::string & reason);
 std::string motorErrorText(MotorType type, uint8_t error);
 Clock::duration period(double rate);
 TimePoint advanceDeadline(TimePoint deadline, Clock::duration interval, TimePoint now);
 
 // State and deadlines are owned by BusDriver's single context mutex.
-struct MotorContext {
+struct MotorContext
+{
   uint8_t id = 0;
   ControlState state = ControlState::IDLE;
   bool io_error = false;
@@ -121,15 +160,17 @@ struct MotorContext {
   unsigned attempts = 0;
   bool io_rate_warned = false;
 
-  bool acceptCommand(const Command& command, TimePoint now);
-  bool expire(const Config& config, TimePoint now);
+  bool acceptCommand(const Command & command, TimePoint now);
+  bool expire(const Config & config, TimePoint now);
   bool latchFault(TimePoint now);
   bool recordIo(bool success, TimePoint now);
-  double ioRate(const Config& config) const;
-  double pubRate(const Config& config) const;
-  WireCommand wireCommand(const Config& config) const;
-  bool shouldPublish(const Config& config, TimePoint now);
+  double ioRate(const Config & config) const;
+  double pubRate(const Config & config) const;
+  WireCommand wireCommand(const Config & config) const;
+  bool shouldPublish(const Config & config, TimePoint now);
   void makeDue(TimePoint now);
 };
 
 }  // namespace unitree_driver
+
+#endif  // UNITREE_MOTOR_ROS_DRIVER__MODEL_HPP_
