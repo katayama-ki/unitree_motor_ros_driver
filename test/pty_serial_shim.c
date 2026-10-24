@@ -3,7 +3,8 @@
 
 // Test-only preload: Linux PTYs lack the UART low-latency ioctls required by the
 // SDK. Emulate those two ioctls exclusively on the test's named PTY, forwarding
-// them otherwise. Reject all other requests without reading variadic arguments.
+// them otherwise. Pass TIOCEXCL/TIOCNXCL through so the driver's port lock is
+// exercised on the PTY. Reject all other requests without reading variadic arguments.
 // Never linked into the production driver.
 #define _GNU_SOURCE
 #include <errno.h>
@@ -18,6 +19,9 @@
 // Must match glibc's ioctl prototype exactly to interpose it.
 int ioctl(int fd, unsigned long request, ...)  // NOLINT(runtime/int)
 {
+  if (request == TIOCEXCL || request == TIOCNXCL) {
+    return syscall(SYS_ioctl, fd, request);
+  }
   if (request != TIOCGSERIAL && request != TIOCSSERIAL) {
     errno = ENOTTY;
     return -1;
