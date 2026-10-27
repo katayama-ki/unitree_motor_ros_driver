@@ -267,7 +267,6 @@ void MotorContext::makeDue(TimePoint now)
 {
   next_due = now;
   ++schedule_revision;
-  rate_window = now;
   attempts = 0;
 }
 bool MotorContext::acceptCommand(const Command & command, TimePoint now)
@@ -321,7 +320,6 @@ bool MotorContext::recordIo(bool success, TimePoint now)
   }
   ++schedule_revision;
   next_due = now;
-  rate_window = now;
   attempts = 0;
   return true;
 }

@@ -3,6 +3,7 @@
 
 #include "unitree_motor_ros_driver/bus_driver.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <memory>
 #include <sstream>
@@ -244,13 +245,18 @@ void BusDriver::scan(Transport & transport)
 }
 void BusDriver::checkRate(MotorContext & motor, TimePoint now)
 {
+  // Measure between attempt timestamps so that window boundaries never split a period.
+  if (motor.attempts++ == 0) {
+    motor.rate_window = now;
+    return;
+  }
   const double elapsed = std::chrono::duration<double>(now - motor.rate_window).count();
-  if (elapsed < 1.0) {
+  const double target = motor.ioRate(config_);
+  if (elapsed < std::max(1.0, 1.0 / target)) {
     return;
   }
   if (!motor.io_error) {
-    const double actual = motor.attempts / elapsed;
-    const double target = motor.ioRate(config_);
+    const double actual = (motor.attempts - 1) / elapsed;
     if (actual < config_.io_rate_warn_ratio * target) {
       std::ostringstream text;
       text << "I/O attempt rate " << actual << " Hz is below target " << target << " Hz";
@@ -264,7 +270,7 @@ void BusDriver::checkRate(MotorContext & motor, TimePoint now)
     }
   }
   motor.rate_window = now;
-  motor.attempts = 0;
+  motor.attempts = 1;
 }
 void BusDriver::loop(Transport & transport)
 {
@@ -292,7 +298,6 @@ void BusDriver::loop(Transport & transport)
       if (motor.expire(config_, now)) {
         logMotor(Severity::WARN, motor.id, timeout_message);
       }
-      checkRate(motor, now);
       if (motor.state == ControlState::ACTIVE) {
         const auto expiry = motor.command_received +
           std::chrono::duration_cast<Clock::duration>(
@@ -306,9 +311,6 @@ void BusDriver::loop(Transport & transport)
       }
       if (motor.next_due < wake) {
         wake = motor.next_due;
-      }
-      if (!motor.io_error && motor.rate_window + std::chrono::seconds(1) < wake) {
-        wake = motor.rate_window + std::chrono::seconds(1);
       }
       if (
         motor.next_due <= now &&
@@ -329,7 +331,7 @@ void BusDriver::loop(Transport & transport)
     const auto command = motor.wireCommand(config_);
     const auto deadline = motor.next_due;
     const auto revision = motor.schedule_revision;
-    ++motor.attempts;  // Count attempts, including failed/mismatched transactions.
+    checkRate(motor, now);  // Count attempts, including failed/mismatched transactions.
     lock.unlock();
     Feedback rotor;
     std::string failure;

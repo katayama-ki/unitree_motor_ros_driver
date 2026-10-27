@@ -105,7 +105,7 @@ Every private parameter is exposed as an argument in `motor_driver.launch`.
 | `timeout_damping_kd` | 1.0 | Damping gain (N·m·s/rad) used when `timeout_action=damping` |
 | `active_io_rate` | 100 | Target I/O transaction rate per ACTIVE motor (Hz) |
 | `idle_io_rate` | 10 | Target I/O transaction rate per other motor (Hz), unless `io_error` is set |
-| `io_rate_warn_ratio` | 0.9 | Warn when the measured I/O attempt rate falls below this fraction of its target; measured over approximately one second |
+| `io_rate_warn_ratio` | 0.9 | Warn when the measured I/O attempt rate falls below this fraction of its target; measured between attempts over at least one second or one target period |
 | `io_retry_rate` | 0 | Retry rate (Hz) after `io_error` is set; zero disables automatic retries|
 | `active_state_pub_rate` | 100 | Target state publication rate (Hz) per ACTIVE motor |
 | `idle_state_pub_rate` | 10 | Target state publication rate (Hz) per motor in any other control state |

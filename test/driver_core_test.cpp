@@ -760,6 +760,18 @@ TEST(BusDriver, RateMeasurementCountsAttemptsIncludingAlternatingFailures)
   EXPECT_FALSE(h.bus->hasLog("I/O attempt rate"));
   EXPECT_FALSE(h.bus->hasLog("Communication failed twice"));
 }
+TEST(BusDriver, RateMeasurementBelowOneHertzDoesNotWarn)
+{
+  auto c = config();
+  c.motor_id_scan_max = 0;
+  c.idle_io_rate = c.idle_state_pub_rate = 0.5;
+  Harness h(c);
+  h.driver->start();
+  // Scan plus runtime attempts at 0 s and 2 s; a fixed 1 s window would see an empty second.
+  ASSERT_TRUE(h.bus->wait([&] { return h.bus->transactions.size() >= 3; }, 3));
+  std::lock_guard<std::mutex> lock(h.bus->mutex);
+  EXPECT_FALSE(h.bus->hasLog("I/O attempt rate"));
+}
 TEST(BusDriver, WarningThrottleIsIndependentForEachMotorAndLogType)
 {
   auto c = config();
