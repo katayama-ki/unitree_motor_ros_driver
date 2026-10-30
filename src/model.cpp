@@ -340,11 +340,24 @@ WireCommand MotorContext::wireCommand(const Config & config) const
 bool MotorContext::shouldPublish(const Config & config, TimePoint now)
 {
   const double target = pubRate(config);
-  if (!has_published || target >= ioRate(config) || now - last_published >= period(target)) {
-    has_published = true;
-    last_published = now;
+  const double io_rate = ioRate(config);
+  if (target >= io_rate) {
     return true;
   }
-  return false;
+  // A deadline keeps the average at the target instead of rounding each interval up to whole
+  // I/O cycles. Half an I/O period of tolerance absorbs completion jitter.
+  const auto interval = period(target);
+  const auto ready = now + period(io_rate) / 2;
+  // The clamp drops a distant deadline left by a slower rate before a state change.
+  next_publish = std::min(next_publish, now + interval);
+  if (next_publish > ready) {
+    return false;
+  }
+  next_publish += interval;
+  // Re-anchor after the first publish or a feedback gap instead of bursting to catch up.
+  if (next_publish <= ready) {
+    next_publish = now + interval;
+  }
+  return true;
 }
 }  // namespace unitree_driver

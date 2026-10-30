@@ -153,8 +153,7 @@ struct MotorContext
   TimePoint command_received{};
   TimePoint next_due{};
   uint64_t schedule_revision = 0;
-  TimePoint last_published{};
-  bool has_published = false;
+  TimePoint next_publish{};
   int previous_error = 0;
   TimePoint rate_window{};
   unsigned attempts = 0;

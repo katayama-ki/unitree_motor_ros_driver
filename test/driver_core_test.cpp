@@ -294,6 +294,29 @@ TEST(Scheduler, DropsMissedCyclesAndPublishesPerMotor)
   EXPECT_TRUE(one.shouldPublish(c, at(1.11)));
   EXPECT_TRUE(one.shouldPublish(c, at(1.11)));
 }
+TEST(Scheduler, ThinnedPublishKeepsTargetRateDespiteJitter)
+{
+  auto c = config();
+  c.active_io_rate = 100;
+  c.active_state_pub_rate = 30;
+  c.idle_io_rate = 100;
+  c.idle_state_pub_rate = 1;
+  c.normalize();
+  ud::MotorContext motor;
+  EXPECT_TRUE(motor.shouldPublish(c, at(1)));
+  EXPECT_FALSE(motor.shouldPublish(c, at(1.5)));
+  ud::Command cmd;
+  motor.acceptCommand(cmd, at(1.5));
+  // A pending 1 Hz deadline must not delay the faster ACTIVE rate.
+  EXPECT_FALSE(motor.shouldPublish(c, at(1.51)));
+  EXPECT_TRUE(motor.shouldPublish(c, at(1.54)));
+  int published = 0;
+  for (int i = 1; i <= 300; ++i) {
+    const double jitter = (i % 2 == 0 ? 1 : -1) * 0.002;
+    published += motor.shouldPublish(c, at(1.54 + i * 0.01 + jitter));
+  }
+  EXPECT_EQ(90, published);
+}
 
 struct Record
 {
