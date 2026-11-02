@@ -131,16 +131,17 @@ TEST(CommandValidation, B1OutputVelocityCeilingFitsRotorProtocol)
   EXPECT_DOUBLE_EQ(29.5, ud::profile(ud::MotorType::B1).velocity_limit);
   ud::Command cmd;
   std::string reason;
+  const ud::MotorContext motor;
   for (const float velocity : {-29.5f, 29.5f}) {
     cmd.velocity = velocity;
-    EXPECT_TRUE(ud::validateCommand(c, cmd, reason));
+    EXPECT_TRUE(motor.validateCommand(c, cmd, reason));
     EXPECT_NEAR(velocity * 8.66, ud::toWire(c.motor_type, cmd).values.velocity, 1e-4);
   }
   cmd.velocity = 29.6;
-  EXPECT_FALSE(ud::validateCommand(c, cmd, reason));
+  EXPECT_FALSE(motor.validateCommand(c, cmd, reason));
   // The rotor-side protocol check still applies independently of profile limits.
   c.velocity_limit = 30;
-  EXPECT_FALSE(ud::validateCommand(c, cmd, reason));
+  EXPECT_FALSE(motor.validateCommand(c, cmd, reason));
   EXPECT_NE(std::string::npos, reason.find("protocol"));
 }
 TEST(Conversion, OutputRotorRoundTripAndSpecialGains)
@@ -182,7 +183,8 @@ TEST(CommandValidation, RejectsNonfiniteLimitsAndProtocolOverflow)
   c.normalize();
   ud::Command cmd;
   std::string reason;
-  EXPECT_TRUE(ud::validateCommand(c, cmd, reason));
+  const ud::MotorContext motor;
+  EXPECT_TRUE(motor.validateCommand(c, cmd, reason));
   for (float ud::Command::* field :
        {&ud::Command::position, &ud::Command::velocity, &ud::Command::torque, &ud::Command::kp,
         &ud::Command::kd})
@@ -192,31 +194,56 @@ TEST(CommandValidation, RejectsNonfiniteLimitsAndProtocolOverflow)
     {
       auto bad = cmd;
       bad.*field = value;
-      EXPECT_FALSE(ud::validateCommand(c, bad, reason));
+      EXPECT_FALSE(motor.validateCommand(c, bad, reason));
     }
   }
   cmd.velocity = -30;
   cmd.torque = -23;
-  EXPECT_TRUE(ud::validateCommand(c, cmd, reason));
+  EXPECT_TRUE(motor.validateCommand(c, cmd, reason));
   cmd.velocity = -31;
-  EXPECT_FALSE(ud::validateCommand(c, cmd, reason));
+  EXPECT_FALSE(motor.validateCommand(c, cmd, reason));
   cmd = ud::Command();
   cmd.position = 100000;
-  EXPECT_FALSE(ud::validateCommand(c, cmd, reason));
+  EXPECT_FALSE(motor.validateCommand(c, cmd, reason));
   cmd.position = 0;
   c = config(ud::MotorType::A1);
   c.kd_limit = 100;
   c.normalize();
   cmd.kd = 27;
-  EXPECT_FALSE(ud::validateCommand(c, cmd, reason));
+  EXPECT_FALSE(motor.validateCommand(c, cmd, reason));
   EXPECT_NE(std::string::npos, reason.find("protocol"));
   c = config(ud::MotorType::B1);
   c.velocity_limit = 10;
   c.kd_limit = 100;
   c.normalize();
-  EXPECT_TRUE(ud::validateCommand(c, cmd, reason));  // B1 x512, not A1 x1024.
+  EXPECT_TRUE(motor.validateCommand(c, cmd, reason));  // B1 x512, not A1 x1024.
   cmd.kp = -1;
-  EXPECT_FALSE(ud::validateCommand(c, cmd, reason));
+  EXPECT_FALSE(motor.validateCommand(c, cmd, reason));
+}
+TEST(CommandValidation, PredictTorqueSumsFeedforwardAndPdTerms)
+{
+  ud::Feedback feedback;
+  feedback.position = 0.5;
+  feedback.velocity = -1;
+  ud::Command cmd;
+  cmd.torque = -2;
+  EXPECT_DOUBLE_EQ(-2, ud::predictTorque(cmd, feedback));
+  cmd = ud::Command();
+  cmd.kp = 10;
+  cmd.position = 1;
+  EXPECT_DOUBLE_EQ(5, ud::predictTorque(cmd, feedback));
+  cmd.position = 0;
+  EXPECT_DOUBLE_EQ(-5, ud::predictTorque(cmd, feedback));
+  cmd = ud::Command();
+  cmd.kd = 2;
+  cmd.velocity = 0;
+  EXPECT_DOUBLE_EQ(2, ud::predictTorque(cmd, feedback));
+  cmd.velocity = -2;
+  EXPECT_DOUBLE_EQ(-2, ud::predictTorque(cmd, feedback));
+  cmd.torque = 3;
+  cmd.kp = 10;
+  cmd.position = 1;
+  EXPECT_DOUBLE_EQ(3 + 5 - 2, ud::predictTorque(cmd, feedback));
 }
 TEST(ControlState, WatchdogTimeoutActionsRecoveryAndLatchedFault)
 {
@@ -739,6 +766,47 @@ TEST(BusDriver, CommandSubmissionDoesNotBlockBehindTransactionAndSafetyOverrides
   ASSERT_TRUE(h.bus->wait([&] { return h.bus->hasCommand(0, ud::Mode::BRAKE); }));
   std::lock_guard<std::mutex> lock(h.bus->mutex);
   EXPECT_FALSE(h.bus->hasCommand(0, ud::Mode::FOC));
+}
+TEST(BusDriver, RejectsCommandWhosePredictedTorqueExceedsLimitAndKeepsPrevious)
+{
+  auto c = config();
+  c.command_timeout = 5;
+  Harness h(c);
+  const double r = ud::profile(c.motor_type).sdk_gear_ratio;
+  h.bus->feedback[0].position = 1 * r;
+  h.driver->start();
+  ud::Command previous;
+  previous.torque = 1;
+  ASSERT_TRUE(h.driver->submit(previous));
+  ASSERT_TRUE(h.bus->wait([&] { return h.bus->hasCommand(0, ud::Mode::FOC); }));
+  ud::Command far;
+  far.kp = 200;
+  EXPECT_FALSE(h.driver->submit(far));
+  {
+    std::lock_guard<std::mutex> lock(h.bus->mutex);
+    EXPECT_TRUE(h.bus->hasLog(
+      "Motor 0: ignored command: predicted torque -200.0 N·m exceeds limit 23.7 N·m"));
+    h.bus->transactions.clear();
+  }
+  ASSERT_TRUE(h.bus->wait([&] { return h.bus->transactions.size() >= 6; }));
+  {
+    std::lock_guard<std::mutex> lock(h.bus->mutex);
+    for (const auto & record : h.bus->transactions) {
+      if (record.command.values.id == 0) {
+        EXPECT_EQ(ud::Mode::FOC, record.command.mode);
+        EXPECT_NEAR(1 / r, record.command.values.torque, 1e-6);
+        EXPECT_EQ(0, record.command.values.kp);
+      }
+    }
+  }
+  ud::Command near = far;
+  near.position = 1.05;
+  ASSERT_TRUE(h.driver->submit(near));
+  ASSERT_TRUE(h.bus->wait([&] {
+    return std::any_of(
+      h.bus->transactions.begin(), h.bus->transactions.end(),
+      [](const Record & record) { return record.command.values.kp > 0; });
+  }));
 }
 TEST(BusDriver, DisabledErrorStopStillLogsErrorEdges)
 {

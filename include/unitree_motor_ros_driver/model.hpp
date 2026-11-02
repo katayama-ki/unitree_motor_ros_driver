@@ -136,8 +136,8 @@ struct Config
 
 WireCommand toWire(MotorType type, const Command & output, Mode mode = Mode::FOC);
 Feedback toOutput(MotorType type, const Feedback & rotor);
-// The ID is not checked here: BusDriver accepts only IDs detected by the startup scan.
-bool validateCommand(const Config & config, const Command & command, std::string & reason);
+// Output-side torque from the motor's internal PD law at the given feedback.
+double predictTorque(const Command & command, const Feedback & feedback);
 std::string motorErrorText(MotorType type, uint8_t error);
 Clock::duration period(double rate);
 TimePoint advanceDeadline(TimePoint deadline, Clock::duration interval, TimePoint now);
@@ -150,6 +150,7 @@ struct MotorContext
   bool io_error = false;
   int consecutive_io_failures = 0;
   Command latest;
+  Feedback feedback;
   TimePoint command_received{};
   TimePoint next_due{};
   uint64_t schedule_revision = 0;
@@ -159,6 +160,8 @@ struct MotorContext
   unsigned attempts = 0;
   bool io_rate_warned = false;
 
+  // The ID is not checked here: BusDriver accepts only IDs detected by the startup scan.
+  bool validateCommand(const Config & config, const Command & command, std::string & reason) const;
   bool acceptCommand(const Command & command, TimePoint now);
   bool expire(const Config & config, TimePoint now);
   bool latchFault(TimePoint now);

@@ -89,13 +89,10 @@ bool BusDriver::submit(const Command & command)
     return false;
   }
   const auto now = Clock::now();
-  std::string reason;
+  std::string reason = "ID was not detected during startup scan";
   auto found = motors_.find(command.id);
-  if (!validateCommand(config_, command, reason) || found == motors_.end()) {
-    if (reason.empty()) {
-      reason = "ID was not detected during startup scan";
-    }
-    throttled(Severity::WARN, command.id, "invalid_command", "ignored command: " + reason, now);
+  if (found == motors_.end() || !found->second.validateCommand(config_, command, reason)) {
+    throttled(Severity::ERROR, command.id, "invalid_command", "ignored command: " + reason, now);
     return false;
   }
   auto & motor = found->second;
@@ -220,6 +217,7 @@ void BusDriver::scan(Transport & transport)
       auto & motor = motors_[id];
       motor.id = id;
       motor.latest.id = id;
+      motor.feedback = feedback;
       motor.makeDue(now);
       inspectFeedback(motor, feedback, now);
       motor.shouldPublish(config_, now);  // Called only to record this scan feedback as published.
@@ -364,6 +362,7 @@ void BusDriver::loop(Transport & transport)
     }
     if (success) {
       output = toOutput(config_.motor_type, rotor);
+      motor.feedback = output;
       inspectFeedback(motor, output, completed);
       publish = motor.shouldPublish(config_, completed);
     }

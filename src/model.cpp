@@ -5,7 +5,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iomanip>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -160,11 +162,12 @@ std::vector<std::string> Config::normalize()
   }
   if (timeout_action == TimeoutAction::DAMPING) {
     require(timeout_damping_kd > 0, "timeout_damping_kd (damping requires > 0)");
+    require(timeout_damping_kd <= kd_limit, "timeout_damping_kd (exceeds kd_limit)");
     Command damping;
     damping.kd = static_cast<float>(timeout_damping_kd);
-    std::string reason;
-    const bool valid = validateCommand(*this, damping, reason);
-    require(valid, "timeout_damping_kd: " + reason);
+    require(
+      protocolFits(motor_type, toWire(motor_type, damping).values),
+      "timeout_damping_kd (exceeds SDK protocol range)");
   }
   return warnings;
 }
@@ -197,25 +200,9 @@ Feedback toOutput(MotorType type, const Feedback & rotor)
   result.torque *= r;
   return result;
 }
-bool validateCommand(const Config & config, const Command & c, std::string & reason)
+double predictTorque(const Command & c, const Feedback & f)
 {
-  if (
-    !std::isfinite(c.position) || !std::isfinite(c.velocity) || !std::isfinite(c.torque) ||
-    !std::isfinite(c.kp) || !std::isfinite(c.kd))
-  {
-    reason = "NaN or Inf";
-  } else if (
-    std::abs(c.velocity) > config.velocity_limit || std::abs(c.torque) > config.torque_limit ||
-    c.kp < 0 || c.kp > config.kp_limit || c.kd < 0 || c.kd > config.kd_limit)
-  {
-    reason = "configured output-side limit exceeded";
-  } else if (!protocolFits(config.motor_type, toWire(config.motor_type, c).values)) {
-    reason = "rotor-side value exceeds SDK protocol range";
-  } else {
-    reason.clear();
-    return true;
-  }
-  return false;
+  return c.torque + c.kp * (c.position - f.position) + c.kd * (c.velocity - f.velocity);
 }
 std::string motorErrorText(MotorType type, uint8_t error)
 {
@@ -256,6 +243,34 @@ void MotorContext::makeDue(TimePoint now)
   next_due = now;
   ++schedule_revision;
   attempts = 0;
+}
+bool MotorContext::validateCommand(
+  const Config & config, const Command & c, std::string & reason) const
+{
+  if (
+    !std::isfinite(c.position) || !std::isfinite(c.velocity) || !std::isfinite(c.torque) ||
+    !std::isfinite(c.kp) || !std::isfinite(c.kd))
+  {
+    reason = "NaN or Inf";
+  } else if (
+    std::abs(c.velocity) > config.velocity_limit || std::abs(c.torque) > config.torque_limit ||
+    c.kp < 0 || c.kp > config.kp_limit || c.kd < 0 || c.kd > config.kd_limit)
+  {
+    reason = "configured output-side limit exceeded";
+  } else if (!protocolFits(config.motor_type, toWire(config.motor_type, c).values)) {
+    reason = "rotor-side value exceeds SDK protocol range";
+  } else {
+    const double torque = predictTorque(c, feedback);
+    if (std::abs(torque) <= config.torque_limit) {
+      reason.clear();
+      return true;
+    }
+    std::ostringstream text;
+    text << std::fixed << std::setprecision(1) << "predicted torque " << torque
+         << " N·m exceeds limit " << config.torque_limit << " N·m";
+    reason = text.str();
+  }
+  return false;
 }
 bool MotorContext::acceptCommand(const Command & command, TimePoint now)
 {

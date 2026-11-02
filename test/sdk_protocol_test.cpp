@@ -63,14 +63,15 @@ TEST(SdkProtocol, GoSdkSaturationIsRejectedByValidation)
   config.normalize();
   ud::Command output;
   std::string reason;
+  const ud::MotorContext motor;
   output.kp = 1100;
-  EXPECT_FALSE(ud::validateCommand(config, output, reason));
+  EXPECT_FALSE(motor.validateCommand(config, output, reason));
   output.kp = 0;
   output.kd = 1100;
-  EXPECT_FALSE(ud::validateCommand(config, output, reason));
+  EXPECT_FALSE(motor.validateCommand(config, output, reason));
   output.kd = 0;
   output.position = 70000;
-  EXPECT_FALSE(ud::validateCommand(config, output, reason));
+  EXPECT_FALSE(motor.validateCommand(config, output, reason));
   output.position = 60000;
-  EXPECT_TRUE(ud::validateCommand(config, output, reason));
+  EXPECT_TRUE(motor.validateCommand(config, output, reason));
 }
